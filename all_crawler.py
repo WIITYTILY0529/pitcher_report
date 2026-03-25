@@ -1,7 +1,10 @@
 import requests
 import pandas as pd
 import re
+import os
+import statsapi
 from urllib.parse import urlparse, parse_qs
+from sub import PitcherReportGenerator
 
 def extract_game_pk(url):
     """URL에서 gamePk 값을 추출합니다."""
@@ -21,6 +24,23 @@ def extract_game_pk(url):
         return url
         
     return None
+
+def get_boxscore_pitching_stats(game_pk):
+    """statsapi를 사용하여 투수들의 박스스코어 스탯을 가져옵니다."""
+    try:
+        data = statsapi.get('game_boxscore', {'gamePk': game_pk})
+        pitching_stats = {}
+        for team_name in ['away', 'home']:
+            team = data['teams'][team_name]
+            for p_id, p_data in team['players'].items():
+                if 'pitching' in p_data['stats'] and p_data['stats']['pitching']:
+                    name = p_data['person']['fullName']
+                    pitching_stats[name] = p_data['stats']['pitching']
+                    # 성+이름 순서가 다를 수 있으므로 다양한 키로 저장 고려 (선택사항)
+        return pitching_stats
+    except Exception as e:
+        print(f"박스스코어 수집 중 오류 발생: {e}")
+        return {}
 
 def fetch_and_save_game_data(url):
     game_pk = extract_game_pk(url)
@@ -60,6 +80,47 @@ def fetch_and_save_game_data(url):
         df.to_csv(output_file, index=False)
         print(f"성공! {len(df)}개의 투구 데이터가 '{output_file}'에 저장되었습니다.")
         
+        # 박스스코어 데이터 가져오기
+        box_stats = get_boxscore_pitching_stats(game_pk)
+        
+        # 리포트 자동 생성
+        print("\n리포트 생성을 시작합니다...")
+        report_gen = PitcherReportGenerator(df)
+        pitchers = sorted(report_gen.df['pitcher_name'].dropna().unique())
+        
+        import unicodedata
+        def normalize_name(name):
+            return "".join(c for c in unicodedata.normalize('NFD', name)
+                          if unicodedata.category(c) != 'Mn').lower()
+
+        for p in pitchers:
+            # Savant: "Last, First"
+            # statsapi: "First Last"
+            match_stats = None
+            norm_p = normalize_name(p)
+            
+            for box_name, stats in box_stats.items():
+                norm_box = normalize_name(box_name)
+                
+                # Check for "Last, First" vs "First Last" match
+                if ',' in p:
+                    last, first = [part.strip() for part in p.split(',')]
+                    norm_last = normalize_name(last)
+                    norm_first = normalize_name(first)
+                    if norm_first in norm_box and norm_last in norm_box:
+                        match_stats = stats
+                        break
+                elif norm_p in norm_box or norm_box in norm_p:
+                    match_stats = stats
+                    break
+            
+            if match_stats:
+                print(f"Generating report for: {p} (Boxscore found!)")
+            else:
+                print(f"Generating report for: {p} (Boxscore NOT found)")
+                
+            report_gen.create_report(p, boxscore_stats=match_stats)
+            
     except Exception as e:
         print(f"데이터 수집 중 오류 발생: {e}")
 

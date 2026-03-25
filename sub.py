@@ -255,7 +255,7 @@ class PitcherReportGenerator:
         for j, col_name in enumerate(df.columns):
             ax.text(j + 0.5, n_rows + 0.5, str(col_name),
                     ha='center', va='center',
-                    fontsize=fontsize - 0.5, fontweight='bold', color='white',
+                    fontsize=fontsize - 0.5, fontweight='bold', color='White',
                     zorder=1)
 
         # ── Data rows ────────────────────────────────────────────────
@@ -328,7 +328,6 @@ class PitcherReportGenerator:
                     'Side':    stance,
                     'VAA min': round(vaa_clean.min(), 1) if not vaa_clean.empty else 0,
                     'VAA max': round(vaa_clean.max(), 1) if not vaa_clean.empty else 0,
-                    'VAA avg': round(vaa_clean.mean(), 1) if not vaa_clean.empty else 0,
                     'Velo':    round(sub['start_speed'].mean(), 1),
                     'IVB':     round(sub['breakZInducedInches'].mean(), 1),
                     'HB':      round(sub['breakXInches'].mean(), 1),
@@ -374,18 +373,45 @@ class PitcherReportGenerator:
         title_y_center = 1 - (title_h * 0.28) / fig_h
         fig.text(0.5, title_y_center, pitcher_name,
                  fontsize=27, fontweight='bold', ha='center', va='center',
-                 color='white')
+                 color='black')
         fig.text(0.5, 1 - (title_h * 0.60) / fig_h,
                  f"Pitcher Report  ·  {nat}",
-                 fontsize=13, ha='center', va='center', color=GRAY_MID)
+                 fontsize=13, ha='center', va='center', color='black')
 
         if has_box:
-            summary = boxscore_stats.get('summary', '')
-            note    = boxscore_stats.get('note', '')
-            fig.text(0.5, 1 - (title_h * 0.88) / fig_h,
-                     f"{summary}   {note}",
-                     fontsize=12, ha='center', va='center',
-                     color=GOLD_ACC, fontweight='bold')
+            # Build a small horizontal table for boxscore
+            box_cols = ['IP', 'H', 'R', 'ER', 'BB', 'K', 'NP', 'S']
+            box_vals = [
+                str(boxscore_stats.get('inningsPitched', '0.0')),
+                str(boxscore_stats.get('hits', 0)),
+                str(boxscore_stats.get('runs', 0)),
+                str(boxscore_stats.get('earnedRuns', 0)),
+                str(boxscore_stats.get('baseOnBalls', 0)),
+                str(boxscore_stats.get('strikeOuts', 0)),
+                str(boxscore_stats.get('numberOfPitches', 0)),
+                str(boxscore_stats.get('strikes', 0))
+            ]
+            note = boxscore_stats.get('note', '')
+            
+            # Draw boxscore table in the header
+            box_y = 1 - (title_h * 0.78) / fig_h
+            box_w = 0.45
+            ax_box = fig.add_axes([0.5 - box_w/2, box_y - 0.25/fig_h, box_w, 0.45/fig_h])
+            ax_box.axis('off')
+            
+            # Draw cells
+            cell_w = 1.0 / len(box_cols)
+            for j, (col, val) in enumerate(zip(box_cols, box_vals)):
+                # Header
+                ax_box.text(j*cell_w + cell_w/2, 0.7, col, ha='center', va='center', 
+                            fontsize=9, color='black', fontweight='bold')
+                # Value
+                ax_box.text(j*cell_w + cell_w/2, 0.2, val, ha='center', va='center', 
+                            fontsize=12, color=GOLD_ACC, fontweight='bold')
+            
+            if note:
+                fig.text(0.5, 1 - (title_h * 0.94) / fig_h, note,
+                         fontsize=10, ha='center', va='center', color=GOLD_ACC, alpha=0.9)
 
         # ── GridSpec for the three content rows ───────────────────────
         gs = GridSpec(
