@@ -54,7 +54,28 @@ export default {
       });
     }
 
-    return jsonError(404, 'Not found. Use GET /gf?game_pk=<id>');
+    // /boxscore  →  MLB Stats API 박스스코어
+    if (url.pathname === '/boxscore') {
+      const gamePk = url.searchParams.get('game_pk');
+      if (!gamePk || !/^\d+$/.test(gamePk)) {
+        return jsonError(400, 'game_pk is required');
+      }
+      const mlbUrl = `https://statsapi.mlb.com/api/v1/game/${gamePk}/boxscore`;
+      let mlbRes;
+      try {
+        mlbRes = await fetch(mlbUrl, { headers: { Accept: 'application/json' } });
+      } catch (e) {
+        return jsonError(502, `Failed to reach MLB API: ${e.message}`);
+      }
+      if (!mlbRes.ok) return jsonError(mlbRes.status, 'MLB API error');
+      const data2 = await mlbRes.json();
+      return new Response(JSON.stringify(data2), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+      });
+    }
+
+    return jsonError(404, 'Not found. Use GET /gf?game_pk=<id> or GET /boxscore?game_pk=<id>');
   },
 };
 

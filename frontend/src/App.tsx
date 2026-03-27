@@ -228,6 +228,7 @@ export default function App() {
   const [selPitches, setSelPitches] = useState<string[]>([]);
   const [stand, setStand]           = useState('both');
   const [pitchData, setPitchData]   = useState<PitchRecord[]>([]);
+  const [boxscore, setBoxscore]     = useState<Record<string,any>>({});
   const [loading, setLoading]       = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [countdown, setCountdown]   = useState(15);
@@ -258,6 +259,26 @@ export default function App() {
       setGamePk(gk); setSelected(null); setPitchData([]);
       setPitchers(Object.entries(map).sort(([a],[b])=>a.localeCompare(b))
         .map(([name,pts])=>({ name, pitch_types:[...pts].sort() })));
+
+      // 박스스코어 병렬 로드
+      try {
+        const bsRes = await fetch(`${WORKER_URL}/boxscore?game_pk=${gk}`);
+        if (bsRes.ok) {
+          const bsJson = await bsRes.json();
+          // 투수별 스탯 추출: { "Last, First": { ip, h, r, er, bb, k, np, s } }
+          const stats: Record<string,any> = {};
+          for (const side of ['away','home'] as const) {
+            const players = bsJson?.teams?.[side]?.players ?? {};
+            for (const p of Object.values(players) as any[]) {
+              const ps = p?.stats?.pitching;
+              if (ps && Object.keys(ps).length) {
+                stats[p.person.fullName] = ps;
+              }
+            }
+          }
+          setBoxscore(stats);
+        }
+      } catch { /* 박스스코어 실패해도 계속 진행 */ }
     } catch(e:any) { setError(e.message??'Failed'); }
     finally { setLoading(false); }
   }
@@ -319,6 +340,18 @@ export default function App() {
 
   const pitchTypes = [...new Set(pitchData.map(d=>d.pitch_name).filter(Boolean))];
   const colorMap   = Object.fromEntries(pitchTypes.map(pt => [pt, getPitchColor(pt)]));
+
+  // 선택된 투수의 박스스코어 스탯 매칭 (성/이름 순서 다를 수 있어서 느슨하게 매칭)
+  const selectedBoxscore = (() => {
+    if (!selected || !Object.keys(boxscore).length) return null;
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g,'');
+    const target = norm(selected.name);
+    for (const [name, stats] of Object.entries(boxscore)) {
+      const n = norm(name);
+      if (n === target || n.includes(target) || target.includes(n)) return stats as any;
+    }
+    return null;
+  })();
 
   // ── traces ────────────────────────────────────────────────────────────────
   // 로케이션: L+R 합쳐서 하나
@@ -385,6 +418,25 @@ export default function App() {
             <div className="header-pitcher">
               <span className="pitcher-name">{selected.name}</span>
               <span className="pitcher-meta">game_pk: {gamePk} · {pitchData.length} pitches</span>
+              {selectedBoxscore && (
+                <div className="boxscore-row">
+                  {[
+                    ['IP', selectedBoxscore.inningsPitched],
+                    ['H',  selectedBoxscore.hits],
+                    ['R',  selectedBoxscore.runs],
+                    ['ER', selectedBoxscore.earnedRuns],
+                    ['BB', selectedBoxscore.baseOnBalls],
+                    ['K',  selectedBoxscore.strikeOuts],
+                    ['NP', selectedBoxscore.numberOfPitches],
+                    ['S',  selectedBoxscore.strikes],
+                  ].map(([label, val]) => (
+                    <div key={label as string} className="bs-cell">
+                      <span className="bs-label">{label}</span>
+                      <span className="bs-val">{val ?? '-'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

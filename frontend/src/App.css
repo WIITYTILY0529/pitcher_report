@@ -67,6 +67,38 @@ body {
   color: var(--gray-mid);
 }
 
+.boxscore-row {
+  display: flex;
+  gap: 0.1rem;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.bs-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  min-width: 36px;
+}
+
+.bs-label {
+  font-size: 0.65rem;
+  color: var(--gray-mid);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bs-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--gold);
+  line-height: 1.2;
+}
+
 .layout {
   display: flex;
   flex: 1;
