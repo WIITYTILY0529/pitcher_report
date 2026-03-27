@@ -260,12 +260,13 @@ export default function App() {
       setPitchers(Object.entries(map).sort(([a],[b])=>a.localeCompare(b))
         .map(([name,pts])=>({ name, pitch_types:[...pts].sort() })));
 
-      // 박스스코어 병렬 로드
+      // 박스스코어 — MLB Stats API 직접 호출 (CORS 허용)
       try {
-        const bsRes = await fetch(`${WORKER_URL}/boxscore?game_pk=${gk}`);
+        const bsRes = await fetch(
+          `https://statsapi.mlb.com/api/v1/game/${gk}/boxscore`
+        );
         if (bsRes.ok) {
           const bsJson = await bsRes.json();
-          // 투수별 스탯 추출: { "Last, First": { ip, h, r, er, bb, k, np, s } }
           const stats: Record<string,any> = {};
           for (const side of ['away','home'] as const) {
             const players = bsJson?.teams?.[side]?.players ?? {};
