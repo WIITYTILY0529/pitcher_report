@@ -5,5 +5,5 @@ import react from '@vitejs/plugin-react'
 // 예: https://username.github.io/pitcher-report/ 이면 base: '/pitcher-report/'
 export default defineConfig({
   plugins: [react()],
-  base: '/pitcher-report/',   // ← 본인 GitHub repo 이름으로 변경
+  base: '/pitcher_report/',
 })
