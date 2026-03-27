@@ -102,6 +102,30 @@ async def generate_report(request: ReportRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/pitch-data")
+async def get_pitch_data(request: ReportRequest):
+    try:
+        csv_file = f"complete_pitchdata_{request.game_pk}.csv"
+        if not os.path.exists(csv_file):
+            raise HTTPException(status_code=404, detail="Game data CSV not found.")
+        
+        df = pd.read_csv(csv_file)
+        pdf = df[df['pitcher_name'] == request.pitcher_name].copy()
+        
+        if request.selected_pitches:
+            pdf = pdf[pdf['pitch_name'].isin(request.selected_pitches)]
+        
+        if request.opponent_stand and request.opponent_stand != 'both':
+            stand_code = 'L' if request.opponent_stand.lower() == 'left' else 'R'
+            pdf = pdf[pdf['stand'] == stand_code]
+
+        # Convert NaNs to None for JSON compatibility
+        pdf = pdf.where(pd.notnull(pdf), None)
+        
+        return pdf.to_dict(orient='records')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Static files for reports
 REPORTS_DIR = "pitcher_reports"
 if not os.path.exists(REPORTS_DIR):
