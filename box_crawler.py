@@ -1,3 +1,4 @@
 import statsapi
 
-print(statsapi.boxscore(831547))
+gamePk = 'should be written'
+print(statsapi.boxscore(gamePk))

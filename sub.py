@@ -303,11 +303,17 @@ class PitcherReportGenerator:
                      color=NAVY, pad=8, loc='left')
 
     # ── Main report ───────────────────────────────────────────────────────
-    def create_report(self, pitcher_name, boxscore_stats=None):
+    def create_report(self, pitcher_name, boxscore_stats=None, selected_pitches=None):
         pdf = self.df[self.df['pitcher_name'] == pitcher_name].copy()
         if pdf.empty:
             print(f"No pitch data found for {pitcher_name}")
             return
+
+        if selected_pitches:
+            pdf = pdf[pdf['pitch_name'].isin(selected_pitches)]
+            if pdf.empty:
+                print(f"No pitch data found for {pitcher_name} with selected pitches {selected_pitches}")
+                return
 
         nat = pdf['nationality'].iloc[0]
         pitch_types = pdf['pitch_name'].dropna().unique().tolist()
