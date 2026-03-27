@@ -11,10 +11,35 @@ const GRAY_LITE= '#EEF1F7';
 const GRAY_MID = '#C8D0DC';
 const GRAY_DARK= '#8A95A3';
 
-const PITCH_PALETTE = [
-  '#E63946','#2A9D8F','#E9C46A','#457B9D',
-  '#F4A261','#8338EC','#06D6A0','#FFB703','#FB5607',
-];
+// ── 구종별 고정 색상 (구종 추가/제거해도 색상 불변) ─────────────────────
+const PITCH_COLORS: Record<string, string> = {
+  '4-Seam Fastball': '#E63946',
+  'Sinker':          '#FF6B6B',
+  'Cutter':          '#F4A261',
+  'Slider':          '#E9C46A',
+  'Sweeper':         '#FFB703',
+  'Curveball':       '#457B9D',
+  'Knuckle Curve':   '#5B8DB8',
+  'Changeup':        '#2A9D8F',
+  'Splitter':        '#8338EC',
+  'Knuckleball':     '#06D6A0',
+  'Eephus':          '#FB5607',
+  'Screwball':       '#FF006E',
+  'Forkball':        '#3A86FF',
+  'Slurve':          '#FFBE0B',
+};
+
+// 미등록 구종은 구종명 해시 기반으로 고정 색상 할당
+const FALLBACK_PALETTE = ['#E63946','#2A9D8F','#E9C46A','#457B9D','#F4A261','#8338EC','#06D6A0','#FFB703','#FB5607'];
+function hashColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return FALLBACK_PALETTE[h % FALLBACK_PALETTE.length];
+}
+
+function getPitchColor(name: string): string {
+  return PITCH_COLORS[name] ?? hashColor(name);
+}
 
 const NEEDED_COLS = new Set([
   'pitcher_name','pitch_name','stand','plate_x','plate_z',
@@ -293,7 +318,7 @@ export default function App() {
   }
 
   const pitchTypes = [...new Set(pitchData.map(d=>d.pitch_name).filter(Boolean))];
-  const colorMap   = Object.fromEntries(pitchTypes.map((pt,i)=>[pt,PITCH_PALETTE[i%PITCH_PALETTE.length]]));
+  const colorMap   = Object.fromEntries(pitchTypes.map(pt => [pt, getPitchColor(pt)]));
 
   // ── traces ────────────────────────────────────────────────────────────────
   // 로케이션: L+R 합쳐서 하나
