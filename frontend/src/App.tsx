@@ -320,19 +320,33 @@ export default function App() {
   async function downloadTable(id: string, suffix: string) {
     if (!selected) return;
     const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
-    const html2canvas = (await import('html2canvas')).default;
     const el = document.getElementById(id);
     if (!el) return;
+
+    // 모든 overflow:auto/hidden 요소를 visible로 임시 전환
+    const overflowEls = Array.from(el.querySelectorAll<HTMLElement>('*')).concat(el);
+    const prevStyles: string[] = overflowEls.map(e => e.style.overflow);
+    overflowEls.forEach(e => { e.style.overflow = 'visible'; });
+
+    const fullW = el.scrollWidth;
+    const fullH = el.scrollHeight;
+
+    const html2canvas = (await import('html2canvas')).default;
     const canvas = await html2canvas(el, {
       scale: 2,
       backgroundColor: '#ffffff',
       useCORS: true,
-      // 스크롤 위치 보정 — 잘림 방지
       scrollX: 0,
-      scrollY: -window.scrollY,
-      windowWidth: document.documentElement.scrollWidth,
-      windowHeight: el.scrollHeight + el.getBoundingClientRect().top + window.scrollY,
+      scrollY: 0,
+      width: fullW,
+      height: fullH,
+      windowWidth: fullW,
+      windowHeight: fullH,
     });
+
+    // 복원
+    overflowEls.forEach((e, i) => { e.style.overflow = prevStyles[i]; });
+
     const link = document.createElement('a');
     link.download = `${base}_${suffix}.png`;
     link.href = canvas.toDataURL('image/png');
