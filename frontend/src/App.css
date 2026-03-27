@@ -340,7 +340,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-width: 640px;   /* 정사각형이 너무 커지지 않게 */
+  max-width: 900px;
   margin: 0 auto;
 }
 
@@ -356,7 +356,9 @@ body {
 .chart-square {
   position: relative;
   width: 100%;
+  max-width: 640px;
   aspect-ratio: 1 / 1;
+  margin: 0 auto;
 }
 
 .chart-square > div {
