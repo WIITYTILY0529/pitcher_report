@@ -36,7 +36,7 @@ interface PitchRecord {
   vy0: number|null; ay: number|null; vz0: number|null; az: number|null;
 }
 
-// ── Plotly DOM 렌더러 ─────────────────────────────────────────────────────
+// ── Plotly DOM 렌더러 — 컨테이너 크기에 맞게 자동 조절 ──────────────────
 function PlotChart({ id, data, layout }: { id: string; data: any[]; layout: any }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -44,12 +44,14 @@ function PlotChart({ id, data, layout }: { id: string; data: any[]; layout: any 
     (Plotly as any).react(ref.current, data, {
       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#FAFBFD',
       font: { family: 'Inter, sans-serif', color: NAVY },
-      margin: { l: 48, r: 16, t: 10, b: 48 },
-      showlegend: false,
+      margin: { l: 52, r: 20, t: 16, b: 52 },
+      showlegend: true,
+      legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.12, font: { size: 12 } },
+      autosize: true,
       ...layout,
     }, { displayModeBar: false, responsive: true });
   }, [data, layout]);
-  return <div id={id} ref={ref} style={{ width: '100%' }} />;
+  return <div id={id} ref={ref} style={{ width: '100%', height: '100%' }} />;
 }
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────
@@ -274,18 +276,12 @@ export default function App() {
   const colorMap   = Object.fromEntries(pitchTypes.map((pt,i)=>[pt,PITCH_PALETTE[i%PITCH_PALETTE.length]]));
 
   // ── traces ────────────────────────────────────────────────────────────────
-  const lhbTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
+  // 로케이션: L+R 합쳐서 하나
+  const zoneTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
     'plate_x','plate_z',
-    d=>`<b>${d.pitch_name}</b><br>${d.start_speed} mph · ${d.spin_rate} rpm`,
-    d=>d.stand==='L');
+    d=>`<b>${d.pitch_name}</b><br>${d.start_speed} mph · ${d.spin_rate} rpm<br>${d.stand==='L'?'vs LHB':'vs RHB'}`);
 
-  const rhbTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
-    'plate_x','plate_z',
-    d=>`<b>${d.pitch_name}</b><br>${d.start_speed} mph · ${d.spin_rate} rpm`,
-    d=>d.stand==='R');
-
-  const moveTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
-    'breakXInches','breakZInducedInches',
+  const moveTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,    'breakXInches','breakZInducedInches',
     d=>`<b>${d.pitch_name}</b><br>IVB: ${d.breakZInducedInches}"<br>HB: ${d.breakXInches}"<br>${d.start_speed} mph`);
 
   const relTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
@@ -309,16 +305,14 @@ export default function App() {
   ];
 
   const lhbLayout = {
-    height:360, shapes:zoneShapes,
+    shapes:zoneShapes,
     xaxis:ax({range:[-2.5,2.5],title:{text:'← Glove | Arm →',font:{color:GRAY_DARK,size:10}},fixedrange:true}),
-    yaxis:ax({range:[-0.3,5.2],title:{text:'Height (ft)',font:{color:GRAY_DARK,size:10}},fixedrange:true}),
+    yaxis:ax({range:[-0.3,5.2],title:{text:'Height (ft)',font:{color:GRAY_DARK,size:10}},fixedrange:true,scaleanchor:'x',scaleratio:1}),
   };
-  const rhbLayout = { ...lhbLayout };
 
   const moveLayout = {
-    height:360,
     xaxis:ax({range:[-24,24],title:{text:'← Glove Side  |  Arm Side →',font:{color:GRAY_DARK,size:10}},zeroline:true,zerolinewidth:1}),
-    yaxis:ax({range:[-24,24],title:{text:'Induced Vertical Break (in)',font:{color:GRAY_DARK,size:10}},zeroline:true,zerolinewidth:1}),
+    yaxis:ax({range:[-24,24],title:{text:'Induced Vertical Break (in)',font:{color:GRAY_DARK,size:10}},zeroline:true,zerolinewidth:1,scaleanchor:'x',scaleratio:1}),
     shapes:[
       {type:'circle',x0:-24,y0:-24,x1:24,y1:24,line:{color:GRAY_MID,dash:'dash',width:1}},
       {type:'line',x0:-24,y0:0,x1:24,y1:0,line:{color:GRAY_MID,width:1}},
@@ -331,15 +325,11 @@ export default function App() {
   };
 
   const relLayout = {
-    height:360,
-    xaxis:ax({range:[-5,5],title:{text:'Release X (ft)',font:{color:GRAY_DARK,size:10}},zeroline:true}),
+    xaxis:ax({range:[-5,5],title:{text:'Release X (ft)',font:{color:GRAY_DARK,size:10}},zeroline:true,scaleanchor:'y',scaleratio:1}),
     yaxis:ax({range:[4,8],title:{text:'Release Z (ft)',font:{color:GRAY_DARK,size:10}}}),
   };
 
-  // 공통 legend (차트 아래 한 줄)
 
-  const lhbCount  = pitchData.filter(d=>d.stand==='L').length;
-  const rhbCount  = pitchData.filter(d=>d.stand==='R').length;
 
   return (
     <div className="app">
@@ -437,19 +427,21 @@ export default function App() {
               <div className="chart-stack">
                 <div className="chart-block">
                   <div className="chart-title">Pitch Breaks</div>
-                  <PlotChart id="plot-move" data={moveTraces} layout={moveLayout}/>
+                  <div className="chart-square">
+                    <PlotChart id="plot-move" data={moveTraces} layout={moveLayout}/>
+                  </div>
                 </div>
                 <div className="chart-block">
-                  <div className="chart-title">Pitch Locations vs LHB <span className="chart-count">({lhbCount})</span></div>
-                  <PlotChart id="plot-lhb" data={lhbTraces} layout={lhbLayout}/>
-                </div>
-                <div className="chart-block">
-                  <div className="chart-title">Pitch Locations vs RHB <span className="chart-count">({rhbCount})</span></div>
-                  <PlotChart id="plot-rhb" data={rhbTraces} layout={rhbLayout}/>
+                  <div className="chart-title">Pitch Location <span className="chart-count">({pitchData.length} pitches)</span></div>
+                  <div className="chart-square">
+                    <PlotChart id="plot-zone" data={zoneTraces} layout={lhbLayout}/>
+                  </div>
                 </div>
                 <div className="chart-block">
                   <div className="chart-title">Release Point</div>
-                  <PlotChart id="plot-rel" data={relTraces} layout={relLayout}/>
+                  <div className="chart-square">
+                    <PlotChart id="plot-rel" data={relTraces} layout={relLayout}/>
+                  </div>
                 </div>
 
                 {stats.length>0 && (
@@ -475,29 +467,31 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                )}
 
-                    {bipData.length>0 && (<>
-                      <div className="chart-title" style={{marginTop:'1.25rem'}}>
-                        Batted Ball Events
-                        <span className="ev-badge">EV ≥ 95 mph</span>
-                      </div>
-                      <div className="table-scroll">
-                        <table className="stats-table">
-                          <thead><tr><th>Pitch</th><th>Batter</th><th>Event</th><th>EV</th><th>LA</th></tr></thead>
-                          <tbody>
-                            {bipData.map((d,i)=>(
-                              <tr key={i}>
-                                <td className="pitch-cell" style={{borderLeft:`4px solid ${colorMap[d.pitch_name]||GRAY_MID}`}}>{d.pitch_name}</td>
-                                <td>{d.batter_name}</td>
-                                <td>{d.events}</td>
-                                <td className={(d.launch_speed??0)>=95?'ev-high':''}>{d.launch_speed}</td>
-                                <td>{d.launch_angle}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>)}
+                {bipData.length>0 && (
+                  <div className="chart-block">
+                    <div className="chart-title">
+                      Batted Ball Events
+                      <span className="ev-badge">EV ≥ 95 mph</span>
+                    </div>
+                    <div className="table-scroll">
+                      <table className="stats-table">
+                        <thead><tr><th>Pitch</th><th>Batter</th><th>Event</th><th>EV (mph)</th><th>LA (°)</th></tr></thead>
+                        <tbody>
+                          {bipData.map((d,i)=>(
+                            <tr key={i}>
+                              <td className="pitch-cell" style={{borderLeft:`4px solid ${colorMap[d.pitch_name]||GRAY_MID}`}}>{d.pitch_name}</td>
+                              <td>{d.batter_name}</td>
+                              <td>{d.events}</td>
+                              <td className={(d.launch_speed??0)>=95?'ev-high':''}>{d.launch_speed}</td>
+                              <td>{d.launch_angle}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
