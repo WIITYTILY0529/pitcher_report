@@ -70,6 +70,17 @@ def fetch_game_data(url):
         
     df = pd.DataFrame(all_pitches)
     
+    # 메모리 절약을 위해 필요한 컬럼만 필터링
+    needed_cols = [
+        'pitcher_name', 'pitch_name', 'stand', 'plate_x', 'plate_z', 
+        'breakXInches', 'breakZInducedInches', 'start_speed', 'spin_rate', 
+        'extension', 'events', 'batter_name', 'launch_speed', 'launch_angle', 
+        'description', 'vy0', 'ay', 'vz0', 'az', 'call', 'inning', 'ab_number', 
+        'pitch_number', 'game_total_pitches', 'inning_topbot', 'away_team', 'home_team'
+    ]
+    # 존재하는 컬럼만 선택
+    df = df[[c for c in needed_cols if c in df.columns]]
+    
     # 정렬 (전체 투구 순서대로)
     if 'game_total_pitches' in df.columns:
         df = df.sort_values('game_total_pitches', ascending=True)

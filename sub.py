@@ -1,8 +1,11 @@
+import matplotlib
+matplotlib.use('Agg')  # GUI 없이 렌더링 (메모리 절약)
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import os
+import gc
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse, FancyBboxPatch, Polygon
@@ -34,11 +37,11 @@ PITCH_PALETTE = [
     "#F4A261", "#8338EC", "#06D6A0", "#FFB703", "#FB5607",
 ]
 
-# ── Dynamic-height constants (inches) ─────────────────────────────────────
-_ROW_H   = 0.38
-_HDR_H   = 0.50
-_PLOTS_H = 8.00
-_PAD_H   = 0.50
+# ── Dynamic-height constants (inches) — 축소해서 메모리 절약 ──────────────
+_ROW_H   = 0.32
+_HDR_H   = 0.45
+_PLOTS_H = 6.00   # 8.0 → 6.0
+_PAD_H   = 0.40
 
 
 class PitcherReportGenerator:
@@ -373,7 +376,7 @@ class PitcherReportGenerator:
               bip_h   / total_h]
 
         # ── Figure ────────────────────────────────────────────────────
-        fig = plt.figure(figsize=(22, fig_h), facecolor=CREAM)
+        fig = plt.figure(figsize=(16, fig_h), facecolor=CREAM)  # 22 → 16
 
         # Dark header band via axes spanning the full width at the top
         ax_hdr = fig.add_axes([0, 1 - title_h/fig_h, 1, title_h/fig_h])
@@ -495,10 +498,9 @@ class PitcherReportGenerator:
                      f"{pitcher_name.replace(', ', '_').replace(' ', '_')}"
                      f"_Final.png")
         file_path = os.path.join(output_dir, file_name)
-        plt.savefig(file_path, dpi=150, facecolor=CREAM, bbox_inches='tight')
-        plt.close('all') # 모든 피겨를 닫아 메모리 즉시 해제
-        import gc
-        gc.collect() # 가비지 컬렉션 강제 실행
+        plt.savefig(file_path, dpi=100, facecolor=CREAM, bbox_inches='tight')  # 150 → 100
+        plt.close('all')
+        gc.collect()
         print(f"Report generated: {file_path}")
 
 
