@@ -496,7 +496,9 @@ class PitcherReportGenerator:
                      f"_Final.png")
         file_path = os.path.join(output_dir, file_name)
         plt.savefig(file_path, dpi=150, facecolor=CREAM, bbox_inches='tight')
-        plt.close()
+        plt.close('all') # 모든 피겨를 닫아 메모리 즉시 해제
+        import gc
+        gc.collect() # 가비지 컬렉션 강제 실행
         print(f"Report generated: {file_path}")
 
 
