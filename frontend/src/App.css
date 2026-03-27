@@ -298,7 +298,36 @@ body {
 
 .report { display: flex; flex-direction: column; gap: 1.25rem; }
 
-/* 차트 3개 그리드 */
+/* 상단 차트 3개 */
+.charts-top {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+/* 하단 차트 2개 (Release + Stats) */
+.charts-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 1rem;
+}
+
+/* legend 전용 행 */
+.legend-row {
+  background: white;
+  border-radius: 8px;
+  border: 1px solid var(--gray-lite);
+  padding: 0 1rem;
+  height: 44px;
+  overflow: hidden;
+}
+
+.table-panel {
+  overflow-y: auto;
+  max-height: 420px;
+}
+
+/* 차트 3개 그리드 (이전 호환) */
 .charts-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -346,7 +375,13 @@ body {
   flex-wrap: wrap;
 }
 
-.table-sub { font-weight: 400; color: var(--gray-dark); text-transform: none; letter-spacing: 0; }
+.chart-count {
+  font-weight: 400;
+  color: var(--gray-dark);
+  font-size: 0.78rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
 
 .table-badge {
   margin-left: auto;
@@ -439,4 +474,15 @@ body {
   .layout { flex-direction: column; }
   .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--gray-mid); }
   .charts-grid { grid-template-columns: 1fr; }
+}
+
+.table-sub { font-weight: 400; color: var(--gray-dark); text-transform: none; letter-spacing: 0; }
+
+@media (max-width: 1200px) {
+  .charts-top    { grid-template-columns: repeat(2, 1fr); }
+  .charts-bottom { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .charts-top    { grid-template-columns: 1fr; }
 }
