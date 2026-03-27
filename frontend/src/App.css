@@ -298,40 +298,19 @@ body {
 
 .report { display: flex; flex-direction: column; gap: 1.25rem; }
 
-/* 상단 차트 3개 */
-.charts-top {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
+/* 5행 1열 세로 스택 */
+.chart-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-/* 하단 차트 2개 (Release + Stats) */
-.charts-bottom {
-  display: grid;
-  grid-template-columns: 1fr 1.6fr;
-  gap: 1rem;
-}
-
-/* legend 전용 행 */
-.legend-row {
+.chart-block {
   background: white;
-  border-radius: 8px;
+  border-radius: 10px;
+  padding: 1rem 1rem 0.5rem;
+  box-shadow: 0 2px 8px rgba(13,27,42,0.07);
   border: 1px solid var(--gray-lite);
-  padding: 0 1rem;
-  height: 44px;
-  overflow: hidden;
-}
-
-.table-panel {
-  overflow-y: auto;
-  max-height: 420px;
-}
-
-/* 차트 3개 그리드 (이전 호환) */
-.charts-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
 }
 
 .chart-card {

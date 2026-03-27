@@ -323,8 +323,6 @@ export default function App() {
       {type:'circle',x0:-24,y0:-24,x1:24,y1:24,line:{color:GRAY_MID,dash:'dash',width:1}},
       {type:'line',x0:-24,y0:0,x1:24,y1:0,line:{color:GRAY_MID,width:1}},
       {type:'line',x0:0,y0:-24,x1:0,y1:24,line:{color:GRAY_MID,width:1}},
-      // 대각선 점선 (사진 참고)
-      {type:'line',x0:-24,y0:-24,x1:24,y1:24,line:{color:GRAY_MID,width:0.8,dash:'dot'}},
     ],
     annotations:[
       {x:0,y:22,text:'MORE RISE ▲',showarrow:false,font:{color:NAVY_MID,size:9}},
@@ -339,11 +337,6 @@ export default function App() {
   };
 
   // 공통 legend (차트 아래 한 줄)
-  const legendTraces = pitchTypes.map(pt=>({
-    x:[null],y:[null],mode:'markers',name:pt,type:'scatter',
-    marker:{size:10,color:colorMap[pt],line:{color:'white',width:1}},
-    showlegend:true,
-  }));
 
   const lhbCount  = pitchData.filter(d=>d.stand==='L').length;
   const rhbCount  = pitchData.filter(d=>d.stand==='R').length;
@@ -441,41 +434,26 @@ export default function App() {
         <main className="main-content">
           {pitchData.length>0 ? (
             <div className="report">
-              {/* 상단 3개 차트 */}
-              <div className="charts-top">
-                <div className="chart-card">
-                  <div className="chart-title">Pitch Locations vs LHB <span className="chart-count">({lhbCount})</span></div>
-                  <PlotChart id="plot-lhb" data={lhbTraces} layout={lhbLayout}/>
-                </div>
-                <div className="chart-card">
+              <div className="chart-stack">
+                <div className="chart-block">
                   <div className="chart-title">Pitch Breaks</div>
                   <PlotChart id="plot-move" data={moveTraces} layout={moveLayout}/>
                 </div>
-                <div className="chart-card">
+                <div className="chart-block">
+                  <div className="chart-title">Pitch Locations vs LHB <span className="chart-count">({lhbCount})</span></div>
+                  <PlotChart id="plot-lhb" data={lhbTraces} layout={lhbLayout}/>
+                </div>
+                <div className="chart-block">
                   <div className="chart-title">Pitch Locations vs RHB <span className="chart-count">({rhbCount})</span></div>
                   <PlotChart id="plot-rhb" data={rhbTraces} layout={rhbLayout}/>
                 </div>
-              </div>
-
-              {/* 공통 legend */}
-              <div className="legend-row">
-                <PlotChart id="plot-legend" data={legendTraces} layout={{
-                  height:40, margin:{l:0,r:0,t:0,b:0},
-                  showlegend:true,
-                  legend:{orientation:'h',x:0.5,xanchor:'center',y:0.5,font:{size:12,color:NAVY}},
-                  xaxis:{visible:false},yaxis:{visible:false},
-                }}/>
-              </div>
-
-              {/* 하단 2개 */}
-              <div className="charts-bottom">
-                <div className="chart-card">
+                <div className="chart-block">
                   <div className="chart-title">Release Point</div>
                   <PlotChart id="plot-rel" data={relTraces} layout={relLayout}/>
                 </div>
 
                 {stats.length>0 && (
-                  <div className="chart-card table-panel">
+                  <div className="chart-block">
                     <div className="chart-title">
                       Pitching Statistics
                       <span className="table-sub"> · VAA · Velo · IVB · HB · Spin · Whiff%</span>
@@ -499,7 +477,7 @@ export default function App() {
                     </div>
 
                     {bipData.length>0 && (<>
-                      <div className="chart-title" style={{marginTop:'1rem'}}>
+                      <div className="chart-title" style={{marginTop:'1.25rem'}}>
                         Batted Ball Events
                         <span className="ev-badge">EV ≥ 95 mph</span>
                       </div>
