@@ -22,7 +22,8 @@ function App() {
   const [countdown, setCountdown] = useState(15);
   const [error, setError] = useState('');
 
-  const autoUpdateRef = useRef<NodeJS.Timeout | null>(null);
+  const autoUpdateRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
 
   // Handle URL Fetch
   const handleFetchGame = async () => {
