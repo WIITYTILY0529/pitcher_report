@@ -3,7 +3,9 @@ import axios from 'axios';
 import { Search, RotateCcw, Play, Pause, ChevronDown, Check } from 'lucide-react';
 import './App.css';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.MODE === 'development' 
+  ? 'http://localhost:8000' 
+  : window.location.origin;
 
 interface Pitcher {
   name: string;
