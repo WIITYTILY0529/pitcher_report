@@ -259,6 +259,8 @@ function App() {
               </div>
             </>
           )}
+
+          {error && <div className="error-box">{error}</div>}
         </div>
 
         <div className="content">
@@ -272,8 +274,8 @@ function App() {
                     layout={{
                       width: 450, height: 500,
                       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                      xaxis: { range: [-2.5, 2.5], title: 'Glove <-> Arm', fixedrange: true },
-                      yaxis: { range: [0, 5], title: 'Height', fixedrange: true },
+                      xaxis: { range: [-2.5, 2.5], title: { text: 'Glove <-> Arm' }, fixedrange: true },
+                      yaxis: { range: [0, 5], title: { text: 'Height' }, fixedrange: true },
                       shapes: [
                         { type: 'rect', x0: -0.83, y0: 1.5, x1: 0.83, y1: 3.5, line: { color: '#1a1a2e', width: 2 } },
                         { type: 'path', path: 'M -0.71 0.15 L 0.71 0.15 L 0.71 0 L 0 -0.22 L -0.71 0 Z', fillcolor: '#C8D0DC', line: { color: '#0D1B2A' } }
@@ -290,8 +292,8 @@ function App() {
                     layout={{
                       width: 450, height: 500,
                       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                      xaxis: { range: [-24, 24], title: 'HB (in)', gridcolor: '#eee' },
-                      yaxis: { range: [-24, 24], title: 'IVB (in)', gridcolor: '#eee' },
+                      xaxis: { range: [-24, 24], title: { text: 'HB (in)' }, gridcolor: '#eee' },
+                      yaxis: { range: [-24, 24], title: { text: 'IVB (in)' }, gridcolor: '#eee' },
                       shapes: [
                         { type: 'circle', x0: -24, y0: -24, x1: 24, y1: 24, line: { color: '#C8D0DC', dash: 'dash' } },
                         { type: 'line', x0: -24, y0: 0, x1: 24, y1: 0, line: { color: '#C8D0DC' } },
