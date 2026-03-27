@@ -306,7 +306,7 @@ function App() {
               </div>
 
               <div className="data-table-card">
-                <h4>Recent Batted Balls (EV >= 95 in Red)</h4>
+                <h4>Recent Batted Balls (EV &gt;= 95 in Red)</h4>
                 <div className="table-wrapper">
                   <table>
                     <thead>
