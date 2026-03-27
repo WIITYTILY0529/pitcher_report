@@ -120,7 +120,8 @@ async def get_pitch_data(request: ReportRequest):
             pdf = pdf[pdf['stand'] == stand_code]
 
         # Convert NaNs to None for JSON compatibility
-        pdf = pdf.where(pd.notnull(pdf), None)
+        import numpy as np
+        pdf = pdf.replace({np.nan: None})
         
         return pdf.to_dict(orient='records')
     except Exception as e:
