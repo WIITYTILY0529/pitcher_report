@@ -1,13 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import Plotly from 'plotly.js-dist-min';
-import createPlotlyComponent from 'react-plotly.js/factory';
-const Plot = createPlotlyComponent(Plotly as any);
 import { Search, RotateCcw, Play, Pause, ChevronDown, Check, Download } from 'lucide-react';
 import './App.css';
 
-// Cloudflare Worker URL — 빌드 시 환경변수로 주입, 없으면 로컬 개발용 fallback
 const WORKER_URL = import.meta.env.VITE_WORKER_URL ?? 'http://localhost:8787';
 
+// Plotly를 직접 DOM에 렌더링하는 컴포넌트 (react-plotly.js 불필요)
+function PlotChart({ id, data, layout }: { id: string; data: any[]; layout: any }) {
+  const divRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!divRef.current) return;
+    (Plotly as any).react(divRef.current, data, layout, { displayModeBar: false });
+  }, [data, layout]);
+  return <div id={id} ref={divRef} />;
+}
 // ── 필요한 컬럼만 추출 ────────────────────────────────────────────────────
 const NEEDED_COLS = new Set([
   'pitcher_name','pitch_name','stand',
@@ -341,17 +347,17 @@ export default function App() {
               <div className="charts-row">
                 <div className="chart-card">
                   <h4>Movement Profile</h4>
-                  <Plot data={moveTraces as any} layout={{
+                  <PlotChart id="plot-move" data={moveTraces} layout={{
                     ...commonLayout, width:380, height:400,
                     xaxis:{range:[-24,24],title:{text:'HB (in)'},gridcolor:'#eee',zeroline:true,zerolinecolor:'#aaa'},
                     yaxis:{range:[-24,24],title:{text:'IVB (in)'},gridcolor:'#eee',zeroline:true,zerolinecolor:'#aaa'},
                     shapes:[{type:'circle',x0:-24,y0:-24,x1:24,y1:24,line:{color:'#C8D0DC',dash:'dash',width:1}}],
-                  }} config={{displayModeBar:false}} divId="plot-move"/>
+                  }}/>
                 </div>
 
                 <div className="chart-card">
                   <h4>Pitch Location (Catcher View)</h4>
-                  <Plot data={zoneTraces as any} layout={{
+                  <PlotChart id="plot-zone" data={zoneTraces} layout={{
                     ...commonLayout, width:380, height:400,
                     xaxis:{range:[-2.5,2.5],title:{text:'← Glove | Arm →'},fixedrange:true,gridcolor:'#eee'},
                     yaxis:{range:[0,5],title:{text:'Height (ft)'},fixedrange:true,gridcolor:'#eee'},
@@ -360,16 +366,16 @@ export default function App() {
                       {type:'path',path:'M -0.71 0.15 L 0.71 0.15 L 0.71 0 L 0 -0.22 L -0.71 0 Z',
                        fillcolor:'#C8D0DC',line:{color:'#0D1B2A'}},
                     ],
-                  }} config={{displayModeBar:false}} divId="plot-zone"/>
+                  }}/>
                 </div>
 
                 <div className="chart-card">
                   <h4>Release Point</h4>
-                  <Plot data={relTraces as any} layout={{
+                  <PlotChart id="plot-rel" data={relTraces} layout={{
                     ...commonLayout, width:380, height:400,
                     xaxis:{range:[-5,5],title:{text:'Release X (ft)'},gridcolor:'#eee',zeroline:true,zerolinecolor:'#aaa'},
                     yaxis:{range:[4,8],title:{text:'Release Z (ft)'},gridcolor:'#eee'},
-                  }} config={{displayModeBar:false}} divId="plot-rel"/>
+                  }}/>
                 </div>
               </div>
 
