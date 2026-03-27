@@ -18,6 +18,7 @@ function App() {
   const [pitchers, setPitchers] = useState<Pitcher[]>([]);
   const [selectedPitcher, setSelectedPitcher] = useState<Pitcher | null>(null);
   const [selectedPitches, setSelectedPitches] = useState<string[]>([]);
+  const [opponentStand, setOpponentStand] = useState('both');
   const [reportUrl, setReportUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [isAutoUpdate, setIsAutoUpdate] = useState(false);
@@ -25,7 +26,6 @@ function App() {
   const [error, setError] = useState('');
 
   const autoUpdateRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
 
   // Handle URL Fetch
   const handleFetchGame = async () => {
@@ -36,9 +36,6 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/api/fetch`, { url });
       setGamePk(response.data.game_pk);
       setPitchers(response.data.pitchers);
-      if (response.data.pitchers.length > 0 && !selectedPitcher) {
-        // Don't auto-select if we already have one selected during auto-update
-      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to fetch game data');
     } finally {
@@ -47,9 +44,10 @@ function App() {
   };
 
   // Handle Report Generation
-  const handleGenerateReport = async (pName?: string, pTypes?: string[]) => {
+  const handleGenerateReport = async (pName?: string, pTypes?: string[], stand?: string) => {
     const pitcherToUse = pName || selectedPitcher?.name;
     const pitchesToUse = pTypes || selectedPitches;
+    const standToUse = stand || opponentStand;
 
     if (!gamePk || !pitcherToUse) return;
 
@@ -58,7 +56,8 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/api/generate`, {
         game_pk: gamePk,
         pitcher_name: pitcherToUse,
-        selected_pitches: pitchesToUse.length > 0 ? pitchesToUse : null
+        selected_pitches: pitchesToUse.length > 0 ? pitchesToUse : null,
+        opponent_stand: standToUse
       });
       // Append timestamp to break cache
       setReportUrl(`${API_BASE_URL}${response.data.image_url}?t=${new Date().getTime()}`);
@@ -92,7 +91,7 @@ function App() {
     return () => {
       if (autoUpdateRef.current) clearInterval(autoUpdateRef.current);
     };
-  }, [isAutoUpdate, gamePk, selectedPitcher]);
+  }, [isAutoUpdate, gamePk, selectedPitcher, opponentStand, selectedPitches]);
 
   // Handle Download
   const handleDownload = async () => {
@@ -103,10 +102,10 @@ function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      
+
       // Extract filename from URL
       const fileName = reportUrl.split('/').pop()?.split('?')[0] || 'pitcher_report.png';
-      
+
       link.setAttribute('download', fileName);
       document.body.appendChild(link);
       link.click();
@@ -121,6 +120,15 @@ function App() {
     setSelectedPitches((prev) => 
       prev.includes(pitch) ? prev.filter(p => p !== pitch) : [...prev, pitch]
     );
+  };
+
+  const handleSelectAllPitches = () => {
+    if (!selectedPitcher) return;
+    if (selectedPitches.length === selectedPitcher.pitch_types.length) {
+      setSelectedPitches([]);
+    } else {
+      setSelectedPitches([...selectedPitcher.pitch_types]);
+    }
   };
 
   return (
@@ -168,9 +176,29 @@ function App() {
                 </div>
               </section>
 
+              <section className="input-group">
+                <h3>Opponent Stand</h3>
+                <div className="select-wrapper">
+                  <select 
+                    value={opponentStand}
+                    onChange={(e) => setOpponentStand(e.target.value)}
+                  >
+                    <option value="both">Both (LHB & RHB)</option>
+                    <option value="left">Left Handed Batters</option>
+                    <option value="right">Right Handed Batters</option>
+                  </select>
+                  <ChevronDown className="select-icon" size={18} />
+                </div>
+              </section>
+
               {selectedPitcher && (
                 <section className="input-group">
-                  <h3>Pitch Types (Optional)</h3>
+                  <div className="flex-header">
+                    <h3>Pitch Types</h3>
+                    <button className="text-btn" onClick={handleSelectAllPitches}>
+                      {selectedPitches.length === selectedPitcher.pitch_types.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
                   <div className="pitch-list">
                     {selectedPitcher.pitch_types.map(pitch => (
                       <label key={pitch} className={`pitch-item ${selectedPitches.includes(pitch) ? 'active' : ''}`}>
@@ -188,6 +216,7 @@ function App() {
                   </div>
                 </section>
               )}
+
 
               <div className="actions">
                 <button 

@@ -66,11 +66,33 @@ main {
 }
 
 .input-group h3 {
-  margin: 0 0 0.75rem 0;
+  margin: 0;
   font-size: 0.9rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.flex-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.text-btn {
+  background: none;
+  border: none;
+  color: var(--primary-light);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.text-btn:hover {
+  color: var(--accent);
 }
 
 .search-box {

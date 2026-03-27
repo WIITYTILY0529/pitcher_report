@@ -303,7 +303,7 @@ class PitcherReportGenerator:
                      color=NAVY, pad=8, loc='left')
 
     # ── Main report ───────────────────────────────────────────────────────
-    def create_report(self, pitcher_name, boxscore_stats=None, selected_pitches=None):
+    def create_report(self, pitcher_name, boxscore_stats=None, selected_pitches=None, opponent_stand='both'):
         pdf = self.df[self.df['pitcher_name'] == pitcher_name].copy()
         if pdf.empty:
             print(f"No pitch data found for {pitcher_name}")
@@ -315,23 +315,29 @@ class PitcherReportGenerator:
                 print(f"No pitch data found for {pitcher_name} with selected pitches {selected_pitches}")
                 return
 
+        if opponent_stand and opponent_stand != 'both':
+            stand_code = 'L' if opponent_stand.lower() == 'left' else 'R'
+            pdf = pdf[pdf['stand'] == stand_code]
+            if pdf.empty:
+                print(f"No data for {pitcher_name} vs {opponent_stand}")
+                return
+
         nat = pdf['nationality'].iloc[0]
         pitch_types = pdf['pitch_name'].dropna().unique().tolist()
         color_map   = {pt: PITCH_PALETTE[i % len(PITCH_PALETTE)]
                        for i, pt in enumerate(pitch_types)}
 
-        # ── Stats aggregation (unchanged) ─────────────────────────────
+        # ── Stats aggregation ─────────────────────────────────────────────
         stats_list = []
         for pt in pitch_types:
-            for stance in ['L', 'R']:
-                sub = pdf[(pdf['pitch_name'] == pt) &
-                          (pdf['stand'] == stance)]
-                if sub.empty:
-                    continue
+            stances = ['L', 'R'] if opponent_stand == 'both' else [pdf['stand'].iloc[0]]
+            for stance in stances:
+                sub = pdf[(pdf['pitch_name'] == pt) & (pdf['stand'] == stance)]
+                if sub.empty: continue
                 vaa_clean = sub['vaa'].dropna()
+                pitch_label = f"{pt} ({stance})" if opponent_stand == 'both' else pt
                 row = {
-                    'Pitch':   pt,
-                    'Side':    stance,
+                    'Pitch':   pitch_label,
                     'VAA min': round(vaa_clean.min(), 1) if not vaa_clean.empty else 0,
                     'VAA max': round(vaa_clean.max(), 1) if not vaa_clean.empty else 0,
                     'Velo':    round(sub['start_speed'].mean(), 1),
@@ -346,11 +352,10 @@ class PitcherReportGenerator:
                 stats_list.append(row)
         stats = pd.DataFrame(stats_list)
 
-        bip_df    = pdf.dropna(subset=['events', 'batter_name',
-                                        'launch_speed', 'launch_angle'])
-        bip_stats = (bip_df[['pitch_name', 'batter_name', 'events',
-                              'launch_speed', 'launch_angle']]
+        bip_df    = pdf.dropna(subset=['events', 'batter_name', 'launch_speed', 'launch_angle'])
+        bip_stats = (bip_df[['pitch_name', 'batter_name', 'events', 'launch_speed', 'launch_angle']]
                      .head(15).round(1).reset_index(drop=True))
+        bip_stats = bip_stats.rename(columns={'launch_speed': 'EV', 'launch_angle': 'LA'})
 
         # ── Dynamic figure height ──────────────────────────────────────
         n_stat  = len(stats)
