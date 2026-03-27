@@ -82,14 +82,7 @@ function App() {
         opponent_stand: opponentStand
       });
       setPitchData(dataResponse.data);
-
-      // 2. Trigger PNG generation in background (optional, for download)
-      await axios.post(`${API_BASE_URL}/api/generate`, {
-        game_pk: gamePk,
-        pitcher_name: selectedPitcher.name,
-        selected_pitches: selectedPitches.length > 0 ? selectedPitches : null,
-        opponent_stand: opponentStand
-      });
+      setError('');
     } catch (err: any) {
       setError('Failed to refresh data');
     } finally {
@@ -122,10 +115,19 @@ function App() {
   }, [isAutoUpdate, gamePk, selectedPitcher]);
 
   const handleDownload = async () => {
-    if (!selectedPitcher) return;
-    const fileName = `Report_${selectedPitcher.name.replace(/,?\s+/g, '_')}_Final.png`;
-    const url = `${API_BASE_URL}/reports/${fileName}?t=${new Date().getTime()}`;
+    if (!selectedPitcher || !gamePk) return;
+    setLoading(true);
     try {
+      // 1. Trigger PNG generation only when user wants to download
+      await axios.post(`${API_BASE_URL}/api/generate`, {
+        game_pk: gamePk,
+        pitcher_name: selectedPitcher.name,
+        selected_pitches: selectedPitches.length > 0 ? selectedPitches : null,
+        opponent_stand: opponentStand
+      });
+
+      const fileName = `Report_${selectedPitcher.name.replace(/,?\s+/g, '_')}_Final.png`;
+      const url = `${API_BASE_URL}/reports/${fileName}?t=${new Date().getTime()}`;
       const res = await fetch(url);
       const blob = await res.blob();
       const link = document.createElement('a');
@@ -133,6 +135,7 @@ function App() {
       link.download = fileName;
       link.click();
     } catch (err) { setError('Download failed'); }
+    finally { setLoading(false); }
   };
 
   const getPitchColor = (name: string) => PITCH_COLORS[name] || '#8A95A3';
