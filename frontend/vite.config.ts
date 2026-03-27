@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
+// GitHub Pages 배포 시 repo 이름으로 base 설정
+// 예: https://username.github.io/pitcher-report/ 이면 base: '/pitcher-report/'
 export default defineConfig({
   plugins: [react()],
+  base: '/pitcher-report/',   // ← 본인 GitHub repo 이름으로 변경
 })
