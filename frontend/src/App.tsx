@@ -263,12 +263,32 @@ export default function App() {
   async function handleDownload() {
     if (!selected||!pitchData.length) return;
     const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
-    for (const [id,suffix] of [
-      ['plot-lhb','location_LHB'],['plot-move','movement'],
-      ['plot-rhb','location_RHB'],['plot-rel','release'],
+    const html2canvas = (await import('html2canvas')).default;
+
+    // Plotly 차트 3개
+    for (const [id, suffix] of [
+      ['plot-move','movement'],
+      ['plot-zone','location'],
+      ['plot-rel', 'release'],
     ] as const) {
       const el = document.getElementById(id);
-      if (el) await (Plotly as any).downloadImage(el,{format:'png',width:800,height:700,filename:`${base}_${suffix}`});
+      if (el) await (Plotly as any).downloadImage(el, {
+        format:'png', width:800, height:800, filename:`${base}_${suffix}`,
+      });
+    }
+
+    // 테이블 2개 — html2canvas로 DOM 캡처
+    for (const [id, suffix] of [
+      ['table-stats','statistics'],
+      ['table-bip',  'batted_ball'],
+    ] as const) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+      const link = document.createElement('a');
+      link.download = `${base}_${suffix}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
     }
   }
 
@@ -445,7 +465,7 @@ export default function App() {
                 </div>
 
                 {stats.length>0 && (
-                  <div className="chart-block">
+                  <div className="chart-block" id="table-stats">
                     <div className="chart-title">
                       Pitching Statistics
                       <span className="table-sub"> · VAA · Velo · IVB · HB · Spin · Whiff%</span>
@@ -471,7 +491,7 @@ export default function App() {
                 )}
 
                 {bipData.length>0 && (
-                  <div className="chart-block">
+                  <div className="chart-block" id="table-bip">
                     <div className="chart-title">
                       Batted Ball Events
                       <span className="ev-badge">EV ≥ 95 mph</span>
