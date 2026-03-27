@@ -23,8 +23,8 @@ interface PitchRecord {
   start_speed: number | null;
   spin_rate: number | null;
   extension: number | null;
-  release_pos_x: number | null;
-  release_pos_z: number | null;
+  x0: number | null;   // release point X
+  z0: number | null;   // release point Z
   stand: string;
   events: string | null;
   batter_name: string | null;
@@ -241,8 +241,8 @@ export default function App() {
   );
 
   const releaseTraces = makeScatterTraces(
-    'release_pos_x', 'release_pos_z',
-    d => `${d.pitch_name}<br>X: ${d.release_pos_x?.toFixed(2)}<br>Z: ${d.release_pos_z?.toFixed(2)}`
+    'x0', 'z0',
+    d => `${d.pitch_name}<br>X: ${d.x0?.toFixed(2)}<br>Z: ${d.z0?.toFixed(2)}`
   );
 
   const stats = calcStats(pitchData, pitchTypes, opponentStand);
@@ -424,8 +424,8 @@ export default function App() {
                     layout={{
                       ...commonLayout,
                       width: 380, height: 400,
-                      xaxis: { range: [-4, 4], title: { text: 'Release X (ft)' }, gridcolor: '#eee', zeroline: true, zerolinecolor: '#aaa' },
-                      yaxis: { range: [3, 8], title: { text: 'Release Z (ft)' }, gridcolor: '#eee' },
+                      xaxis: { range: [-5, 5], title: { text: 'Release X (ft, catcher view)' }, gridcolor: '#eee', zeroline: true, zerolinecolor: '#aaa' },
+                      yaxis: { range: [4, 8], title: { text: 'Release Z (ft)' }, gridcolor: '#eee' },
                     }}
                     config={{ displayModeBar: false }}
                   />

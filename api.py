@@ -24,7 +24,7 @@ NEEDED_COLS = [
     'plate_x', 'plate_z',
     'breakXInches', 'breakZInducedInches',
     'start_speed', 'spin_rate', 'extension',
-    'release_pos_x', 'release_pos_z',
+    'x0', 'z0',           # 릴리즈 포인트 (Baseball Savant 실제 컬럼명)
     'events', 'batter_name', 'launch_speed', 'launch_angle',
     'description', 'call',
     'vy0', 'ay', 'vz0', 'az',
