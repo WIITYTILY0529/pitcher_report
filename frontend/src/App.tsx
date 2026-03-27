@@ -44,7 +44,7 @@ function getPitchColor(name: string): string {
 const NEEDED_COLS = new Set([
   'pitcher_name','pitch_name','stand','plate_x','plate_z',
   'breakXInches','breakZInducedInches','start_speed','spin_rate','extension',
-  'x0','z0','events','batter_name','launch_speed','launch_angle',
+  'x0','z0','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
   'description','call','vy0','ay','vz0','az','game_total_pitches',
 ]);
 
@@ -57,6 +57,7 @@ interface PitchRecord {
   x0: number|null; z0: number|null;
   events: string|null; batter_name: string|null;
   launch_speed: number|null; launch_angle: number|null;
+  hit_distance: number|null; xba: number|null;
   description: string|null; call: string|null;
   vy0: number|null; ay: number|null; vz0: number|null; az: number|null;
 }
@@ -614,7 +615,7 @@ export default function App() {
                     </div>
                     <div className="table-scroll">
                       <table className="stats-table">
-                        <thead><tr><th>Pitch</th><th>Batter</th><th>Event</th><th>EV (mph)</th><th>LA (°)</th></tr></thead>
+                        <thead><tr><th>Pitch</th><th>Batter</th><th>Event</th><th>EV (mph)</th><th>LA (°)</th><th>Dist (ft)</th><th>xBA</th></tr></thead>
                         <tbody>
                           {bipData.map((d,i)=>(
                             <tr key={i}>
@@ -623,6 +624,8 @@ export default function App() {
                               <td>{d.events}</td>
                               <td className={(d.launch_speed??0)>=95?'ev-high':''}>{d.launch_speed}</td>
                               <td>{d.launch_angle}</td>
+                              <td>{d.hit_distance}</td>
+                              <td>{d.xba}</td>
                             </tr>
                           ))}
                         </tbody>
