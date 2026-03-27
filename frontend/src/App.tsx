@@ -307,36 +307,36 @@ export default function App() {
     return ()=>{ if(timerRef.current) clearInterval(timerRef.current); };
   },[autoUpdate,gamePk,selected]);
 
-  async function handleDownload() {
-    if (!selected||!pitchData.length) return;
+  // 개별 차트 다운로드 헬퍼
+  async function downloadPlot(id: string, suffix: string) {
+    if (!selected) return;
+    const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
+    const el = document.getElementById(id);
+    if (el) await (Plotly as any).downloadImage(el, {
+      format:'png', width:800, height:800, filename:`${base}_${suffix}`,
+    });
+  }
+
+  async function downloadTable(id: string, suffix: string) {
+    if (!selected) return;
     const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
     const html2canvas = (await import('html2canvas')).default;
+    const el = document.getElementById(id);
+    if (!el) return;
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+    const link = document.createElement('a');
+    link.download = `${base}_${suffix}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
 
-    // Plotly 차트 3개
-    for (const [id, suffix] of [
-      ['plot-move','movement'],
-      ['plot-zone','location'],
-      ['plot-rel', 'release'],
-    ] as const) {
-      const el = document.getElementById(id);
-      if (el) await (Plotly as any).downloadImage(el, {
-        format:'png', width:800, height:800, filename:`${base}_${suffix}`,
-      });
-    }
-
-    // 테이블 2개 — html2canvas로 DOM 캡처
-    for (const [id, suffix] of [
-      ['table-stats','statistics'],
-      ['table-bip',  'batted_ball'],
-    ] as const) {
-      const el = document.getElementById(id);
-      if (!el) continue;
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
-      const link = document.createElement('a');
-      link.download = `${base}_${suffix}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    }
+  async function handleDownload() {
+    if (!selected||!pitchData.length) return;
+    await downloadPlot('plot-move', 'movement');
+    await downloadPlot('plot-zone', 'location');
+    await downloadPlot('plot-rel',  'release');
+    await downloadTable('table-stats', 'statistics');
+    await downloadTable('table-bip',   'batted_ball');
   }
 
   const pitchTypes = [...new Set(pitchData.map(d=>d.pitch_name).filter(Boolean))];
@@ -524,19 +524,28 @@ export default function App() {
             <div className="report">
               <div className="chart-stack">
                 <div className="chart-block">
-                  <div className="chart-title">Pitch Breaks</div>
+                  <div className="chart-header">
+                    <div className="chart-title">Pitch Breaks</div>
+                    <button className="btn-dl" onClick={()=>downloadPlot('plot-move','movement')} title="Download PNG"><Download size={13}/></button>
+                  </div>
                   <div className="chart-square">
                     <PlotChart id="plot-move" data={moveTraces} layout={moveLayout}/>
                   </div>
                 </div>
                 <div className="chart-block">
-                  <div className="chart-title">Pitch Location <span className="chart-count">({pitchData.length} pitches)</span></div>
+                  <div className="chart-header">
+                    <div className="chart-title">Pitch Location <span className="chart-count">({pitchData.length} pitches)</span></div>
+                    <button className="btn-dl" onClick={()=>downloadPlot('plot-zone','location')} title="Download PNG"><Download size={13}/></button>
+                  </div>
                   <div className="chart-square">
                     <PlotChart id="plot-zone" data={zoneTraces} layout={lhbLayout}/>
                   </div>
                 </div>
                 <div className="chart-block">
-                  <div className="chart-title">Release Point</div>
+                  <div className="chart-header">
+                    <div className="chart-title">Release Point</div>
+                    <button className="btn-dl" onClick={()=>downloadPlot('plot-rel','release')} title="Download PNG"><Download size={13}/></button>
+                  </div>
                   <div className="chart-square">
                     <PlotChart id="plot-rel" data={relTraces} layout={relLayout}/>
                   </div>
@@ -544,10 +553,13 @@ export default function App() {
 
                 {stats.length>0 && (
                   <div className="chart-block" id="table-stats">
-                    <div className="chart-title">
-                      Pitching Statistics
-                      <span className="table-sub"> · VAA · Velo · IVB · HB · Spin · Whiff%</span>
-                      {stand==='both'&&<span className="table-badge">L+R Combined</span>}
+                    <div className="chart-header">
+                      <div className="chart-title">
+                        Pitching Statistics
+                        <span className="table-sub"> · VAA · Velo · IVB · HB · Spin · Whiff%</span>
+                        {stand==='both'&&<span className="table-badge">L+R Combined</span>}
+                      </div>
+                      <button className="btn-dl" onClick={()=>downloadTable('table-stats','statistics')} title="Download PNG"><Download size={13}/></button>
                     </div>
                     <div className="table-scroll">
                       <table className="stats-table">
@@ -570,9 +582,12 @@ export default function App() {
 
                 {bipData.length>0 && (
                   <div className="chart-block" id="table-bip">
-                    <div className="chart-title">
-                      Batted Ball Events
-                      <span className="ev-badge">EV ≥ 95 mph</span>
+                    <div className="chart-header">
+                      <div className="chart-title">
+                        Batted Ball Events
+                        <span className="ev-badge">EV ≥ 95 mph</span>
+                      </div>
+                      <button className="btn-dl" onClick={()=>downloadTable('table-bip','batted_ball')} title="Download PNG"><Download size={13}/></button>
                     </div>
                     <div className="table-scroll">
                       <table className="stats-table">

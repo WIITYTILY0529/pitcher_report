@@ -383,6 +383,37 @@ body {
   border-bottom: 2px solid var(--gray-lite);
 }
 
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--gray-lite);
+}
+
+.chart-header .chart-title {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.btn-dl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  background: var(--gray-lite);
+  border: 1px solid var(--gray-mid);
+  border-radius: 5px;
+  color: var(--navy);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.btn-dl:hover { background: var(--gray-mid); }
+
 /* 테이블 카드 */
 .table-card {
   background: white;
