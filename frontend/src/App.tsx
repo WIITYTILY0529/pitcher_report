@@ -323,7 +323,16 @@ export default function App() {
     const html2canvas = (await import('html2canvas')).default;
     const el = document.getElementById(id);
     if (!el) return;
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      // 스크롤 위치 보정 — 잘림 방지
+      scrollX: 0,
+      scrollY: -window.scrollY,
+      windowWidth: document.documentElement.scrollWidth,
+      windowHeight: el.scrollHeight + el.getBoundingClientRect().top + window.scrollY,
+    });
     const link = document.createElement('a');
     link.download = `${base}_${suffix}.png`;
     link.href = canvas.toDataURL('image/png');
