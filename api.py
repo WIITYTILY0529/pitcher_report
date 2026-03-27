@@ -20,21 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files for reports
-REPORTS_DIR = "pitcher_reports"
-if not os.path.exists(REPORTS_DIR):
-    os.makedirs(REPORTS_DIR)
-app.mount("/reports", StaticFiles(directory=REPORTS_DIR), name="reports")
-
-# Serve React static files (for production)
-DIST_DIR = os.path.join("frontend", "dist")
-if os.path.exists(DIST_DIR):
-    app.mount("/", StaticFiles(directory=DIST_DIR, html=True), name="frontend")
-else:
-    @app.get("/")
-    async def root():
-        return {"message": "API is running. Frontend dist not found. Build the frontend for the web UI."}
-
 class FetchRequest(BaseModel):
     url: str
 
@@ -115,6 +100,22 @@ async def generate_report(request: ReportRequest):
         return {"image_url": f"/reports/{file_name}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Static files for reports
+REPORTS_DIR = "pitcher_reports"
+if not os.path.exists(REPORTS_DIR):
+    os.makedirs(REPORTS_DIR)
+app.mount("/reports", StaticFiles(directory=REPORTS_DIR), name="reports")
+
+# Serve React static files (for production)
+DIST_DIR = os.path.join("frontend", "dist")
+if os.path.exists(DIST_DIR):
+    app.mount("/", StaticFiles(directory=DIST_DIR, html=True), name="frontend")
+else:
+    @app.get("/")
+    async def root():
+        return {"message": "API is running. Frontend dist not found. Build the frontend for the web UI."}
+
 
 if __name__ == "__main__":
     import uvicorn
