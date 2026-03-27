@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import Plot from 'react-plotly.js';
+import Plotly from 'plotly.js-dist-min';
+import createPlotlyComponent from 'react-plotly.js/factory';
+const Plot = createPlotlyComponent(Plotly as any);
 import { Search, RotateCcw, Play, Pause, ChevronDown, Check, Download } from 'lucide-react';
 import './App.css';
 
@@ -116,10 +118,7 @@ export default function App() {
   const [countdown, setCountdown]       = useState(15);
   const [error, setError]               = useState('');
 
-  const timerRef    = useRef<ReturnType<typeof setInterval>|null>(null);
-  const movePlotRef = useRef<any>(null);
-  const zonePlotRef = useRef<any>(null);
-  const relPlotRef  = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval>|null>(null);
 
   // ── Baseball Savant 데이터 fetch (Worker 경유) ──────────────────────────
   async function fetchFromSavant(gk: string): Promise<PitchRecord[]> {
@@ -197,14 +196,14 @@ export default function App() {
   async function handleDownload() {
     if (!selected || !pitchData.length) return;
     const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
-    const Plotly = (await import('plotly.js-dist-min')).default as any;
-    for (const [ref, suffix] of [
-      [movePlotRef, 'movement'],
-      [zonePlotRef, 'location'],
-      [relPlotRef,  'release'],
+    for (const [id, suffix] of [
+      ['plot-move', 'movement'],
+      ['plot-zone', 'location'],
+      ['plot-rel',  'release'],
     ] as const) {
-      if (ref.current?.el) {
-        await Plotly.downloadImage(ref.current.el, {
+      const el = document.getElementById(id);
+      if (el) {
+        await (Plotly as any).downloadImage(el, {
           format: 'png', width: 800, height: 700,
           filename: `${base}_${suffix}`,
         });
@@ -342,17 +341,17 @@ export default function App() {
               <div className="charts-row">
                 <div className="chart-card">
                   <h4>Movement Profile</h4>
-                  <Plot ref={movePlotRef} data={moveTraces as any} layout={{
+                  <Plot data={moveTraces as any} layout={{
                     ...commonLayout, width:380, height:400,
                     xaxis:{range:[-24,24],title:{text:'HB (in)'},gridcolor:'#eee',zeroline:true,zerolinecolor:'#aaa'},
                     yaxis:{range:[-24,24],title:{text:'IVB (in)'},gridcolor:'#eee',zeroline:true,zerolinecolor:'#aaa'},
                     shapes:[{type:'circle',x0:-24,y0:-24,x1:24,y1:24,line:{color:'#C8D0DC',dash:'dash',width:1}}],
-                  }} config={{displayModeBar:false}}/>
+                  }} config={{displayModeBar:false}} divId="plot-move"/>
                 </div>
 
                 <div className="chart-card">
                   <h4>Pitch Location (Catcher View)</h4>
-                  <Plot ref={zonePlotRef} data={zoneTraces as any} layout={{
+                  <Plot data={zoneTraces as any} layout={{
                     ...commonLayout, width:380, height:400,
                     xaxis:{range:[-2.5,2.5],title:{text:'← Glove | Arm →'},fixedrange:true,gridcolor:'#eee'},
                     yaxis:{range:[0,5],title:{text:'Height (ft)'},fixedrange:true,gridcolor:'#eee'},
@@ -361,16 +360,16 @@ export default function App() {
                       {type:'path',path:'M -0.71 0.15 L 0.71 0.15 L 0.71 0 L 0 -0.22 L -0.71 0 Z',
                        fillcolor:'#C8D0DC',line:{color:'#0D1B2A'}},
                     ],
-                  }} config={{displayModeBar:false}}/>
+                  }} config={{displayModeBar:false}} divId="plot-zone"/>
                 </div>
 
                 <div className="chart-card">
                   <h4>Release Point</h4>
-                  <Plot ref={relPlotRef} data={relTraces as any} layout={{
+                  <Plot data={relTraces as any} layout={{
                     ...commonLayout, width:380, height:400,
                     xaxis:{range:[-5,5],title:{text:'Release X (ft)'},gridcolor:'#eee',zeroline:true,zerolinecolor:'#aaa'},
                     yaxis:{range:[4,8],title:{text:'Release Z (ft)'},gridcolor:'#eee'},
-                  }} config={{displayModeBar:false}}/>
+                  }} config={{displayModeBar:false}} divId="plot-rel"/>
                 </div>
               </div>
 
