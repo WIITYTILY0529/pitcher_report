@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Plotly from 'plotly.js-dist-min';
-import { Search, RotateCcw, Play, Pause, ChevronDown, Check, Download } from 'lucide-react';
+import { Search, RotateCcw, Play, Pause, ChevronDown, Check, Download, Menu, X } from 'lucide-react';
 import './App.css';
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL ?? 'http://localhost:8787';
@@ -257,6 +257,7 @@ export default function App() {
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [countdown, setCountdown]   = useState(15);
   const [error, setError]           = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval>|null>(null);
 
   async function fetchFromSavant(gk: string): Promise<PitchRecord[]> {
@@ -484,6 +485,9 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="header-inner">
+          <button className="hamburger" onClick={()=>setDrawerOpen(o=>!o)} aria-label="메뉴">
+            {drawerOpen ? <X size={20}/> : <Menu size={20}/>}
+          </button>
           <h1>Pitcher Report</h1>
           {selected && pitchData.length>0 && (
             <div className="header-pitcher">
@@ -514,7 +518,10 @@ export default function App() {
       </header>
 
       <div className="layout">
-        <aside className="sidebar">
+        {/* 모바일 오버레이 */}
+        {drawerOpen && <div className="drawer-overlay" onClick={()=>setDrawerOpen(false)}/>}
+
+        <aside className={`sidebar ${drawerOpen ? 'drawer-open' : ''}`}>
           {/* 날짜 선택 */}
           <section className="input-group">
             <label>Date</label>
@@ -541,7 +548,7 @@ export default function App() {
               </div>
               {gamePk && (
                 <button className="btn-icon" style={{marginTop:'0.4rem',width:'100%',justifyContent:'center',gap:'0.4rem'}}
-                  onClick={handleFetch} disabled={loading}>
+                  onClick={()=>{ handleFetch(); setDrawerOpen(false); }} disabled={loading}>
                   <Search size={14}/> Load Game
                 </button>
               )}
