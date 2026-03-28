@@ -45,7 +45,7 @@ const NEEDED_COLS = new Set([
   'pitcher_name','pitch_name','stand','plate_x','plate_z',
   'breakXInches','breakZInducedInches','start_speed','spin_rate','extension',
   'x0','z0','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
-  'description','call','vy0','ay','vz0','az','game_total_pitches',
+  'description','call','vy0','ay','vz0','az','game_total_pitches','inning',
 ]);
 
 interface Pitcher { name: string; pitch_types: string[] }
@@ -60,6 +60,7 @@ interface PitchRecord {
   hit_distance: number|null; xba: number|null;
   description: string|null; call: string|null;
   vy0: number|null; ay: number|null; vz0: number|null; az: number|null;
+  inning: number|null;
 }
 
 // ── Plotly DOM 렌더러 — 컨테이너 크기에 맞게 자동 조절 ──────────────────
@@ -190,6 +191,9 @@ function makeEllipseTraces(
 }
 
 function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
+  const totalFiltered = data.filter(d =>
+    stand === 'both' || d.stand === (stand === 'left' ? 'L' : 'R')
+  ).length;
   return pitchTypes.map(pt => {
     const sub = data.filter(d =>
       d.pitch_name === pt &&
@@ -202,10 +206,18 @@ function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
     const hbs    = sub.map(d=>d.breakXInches).filter((v): v is number => v!==null);
     const spins  = sub.map(d=>d.spin_rate).filter((v): v is number => v!==null);
     const exts   = sub.map(d=>d.extension).filter((v): v is number => v!==null);
-    const whiffs = sub.filter(d=>d.description==='Swinging Strike').length;
-    const strikes= sub.filter(d=>d.call&&['S','X'].includes(d.call.toUpperCase())).length;
+    const whiffDescs = new Set(['Swinging Strike','Swinging Strike (Blocked)','Foul Tip']);
+    const swingDescs = new Set([
+      'Swinging Strike','Swinging Strike (Blocked)','Foul Tip',
+      'Foul','Foul Bunt','In play, out(s)','In play, no out','In play, run(s)',
+    ]);
+    const whiffs  = sub.filter(d => d.description && whiffDescs.has(d.description)).length;
+    const swings  = sub.filter(d => d.description && swingDescs.has(d.description)).length;
+    const strikes = sub.filter(d=>d.call&&['S','X'].includes(d.call.toUpperCase())).length;
+    const pitchPct = totalFiltered > 0 ? ((sub.length / totalFiltered) * 100).toFixed(1) : '-';
     return {
       Pitch:     pt,
+      'Pitch%':  `${pitchPct}%`,
       'VAA min': vaas.length ? Math.min(...vaas).toFixed(1) : '-',
       'VAA max': vaas.length ? Math.max(...vaas).toFixed(1) : '-',
       Velo:      avg(speeds)?.toFixed(1) ?? '-',
@@ -213,15 +225,26 @@ function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
       HB:        avg(hbs)?.toFixed(1)    ?? '-',
       Spin:      spins.length ? Math.round(spins.reduce((a,b)=>a+b)/spins.length) : '-',
       Ext:       avg(exts)?.toFixed(1)   ?? '-',
-      'Whiff%':  `${((whiffs/sub.length)*100).toFixed(1)}%`,
+      'Whiff%':  swings > 0 ? `${((whiffs/swings)*100).toFixed(1)}%` : '-',
       'Strike%': `${((strikes/sub.length)*100).toFixed(1)}%`,
       Count:     sub.length,
     };
   }).filter(Boolean) as Record<string,any>[];
 }
 
+// 어제 날짜를 YYYY-MM-DD로 반환 (사용자 로컬 기준)
+function getYesterday(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+interface GameOption { gamePk: string; label: string }
+
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────
 export default function App() {
+  const [dateStr, setDateStr]       = useState(getYesterday);
+  const [games, setGames]           = useState<GameOption[]>([]);
   const [input, setInput]           = useState('');
   const [gamePk, setGamePk]         = useState('');
   const [pitchers, setPitchers]     = useState<Pitcher[]>([]);
@@ -243,12 +266,45 @@ export default function App() {
     return [...(json.team_home??[]),...(json.team_away??[])].map(cleanRecord);
   }
 
+  // 날짜별 경기 목록 로드
+  async function fetchGames(date: string) {
+    try {
+      const res = await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const list: GameOption[] = (json.dates?.[0]?.games ?? []).map((g: any) => ({
+        gamePk: String(g.gamePk),
+        label: `${g.teams.away.team.name} @ ${g.teams.home.team.name}`,
+      }));
+      setGames(list);
+    } catch { setGames([]); }
+  }
+
+  useEffect(() => { fetchGames(dateStr); }, [dateStr]);
+
+  // 박스스코어 fetch (분리해서 수동 업데이트에서도 호출 가능)
+  async function fetchBoxscore(gk: string) {
+    try {
+      const res = await fetch(`https://statsapi.mlb.com/api/v1/game/${gk}/boxscore`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const stats: Record<string,any> = {};
+      for (const side of ['away','home'] as const) {
+        const players = json?.teams?.[side]?.players ?? {};
+        for (const p of Object.values(players) as any[]) {
+          const ps = p?.stats?.pitching;
+          if (ps && Object.keys(ps).length) stats[p.person.fullName] = ps;
+        }
+      }
+      setBoxscore(stats);
+    } catch {}
+  }
+
   async function handleFetch() {
-    if (!input.trim()) return;
+    const gk = input.trim() ? extractGamePk(input) : gamePk;
+    if (!gk) return;
     setLoading(true); setError('');
     try {
-      const gk = extractGamePk(input);
-      if (!gk) throw new Error('유효한 game_pk 또는 URL을 입력하세요.');
       const all = await fetchFromSavant(gk);
       if (!all.length) throw new Error('투구 데이터가 없습니다.');
       const map: Record<string,Set<string>> = {};
@@ -260,27 +316,7 @@ export default function App() {
       setGamePk(gk); setSelected(null); setPitchData([]);
       setPitchers(Object.entries(map).sort(([a],[b])=>a.localeCompare(b))
         .map(([name,pts])=>({ name, pitch_types:[...pts].sort() })));
-
-      // 박스스코어 — MLB Stats API 직접 호출 (CORS 허용)
-      try {
-        const bsRes = await fetch(
-          `https://statsapi.mlb.com/api/v1/game/${gk}/boxscore`
-        );
-        if (bsRes.ok) {
-          const bsJson = await bsRes.json();
-          const stats: Record<string,any> = {};
-          for (const side of ['away','home'] as const) {
-            const players = bsJson?.teams?.[side]?.players ?? {};
-            for (const p of Object.values(players) as any[]) {
-              const ps = p?.stats?.pitching;
-              if (ps && Object.keys(ps).length) {
-                stats[p.person.fullName] = ps;
-              }
-            }
-          }
-          setBoxscore(stats);
-        }
-      } catch { /* 박스스코어 실패해도 계속 진행 */ }
+      await fetchBoxscore(gk);
     } catch(e:any) { setError(e.message??'Failed'); }
     finally { setLoading(false); }
   }
@@ -302,7 +338,14 @@ export default function App() {
   useEffect(()=>{
     if(autoUpdate&&gamePk&&selected){
       timerRef.current=setInterval(()=>{
-        setCountdown(p=>{ if(p<=1){loadPitchData(gamePk,selected!);return 15;} return p-1; });
+        setCountdown(p=>{
+          if(p<=1){
+            loadPitchData(gamePk,selected!);
+            fetchBoxscore(gamePk);
+            return 15;
+          }
+          return p-1;
+        });
       },1000);
     } else { if(timerRef.current) clearInterval(timerRef.current); setCountdown(15); }
     return ()=>{ if(timerRef.current) clearInterval(timerRef.current); };
@@ -392,7 +435,10 @@ export default function App() {
     d=>`<b>${d.pitch_name}</b><br>X: ${(d.x0??0).toFixed(2)} ft<br>Z: ${(d.z0??0).toFixed(2)} ft`);
 
   const stats   = calcStats(pitchData, pitchTypes, stand);
-  const bipData = pitchData.filter(d=>d.events&&d.launch_speed!=null).slice(0,15);
+  const bipData = pitchData
+    .filter(d=>d.events&&d.launch_speed!=null)
+    .sort((a,b)=>(a.inning??0)-(b.inning??0))
+    .slice(0,20);
 
   // ── 공통 축 스타일 ────────────────────────────────────────────────────────
   const ax = (extra={}) => ({ gridcolor:GRAY_MID, zerolinecolor:GRAY_MID, linecolor:GRAY_MID, tickfont:{color:GRAY_DARK,size:10}, ...extra });
@@ -469,8 +515,41 @@ export default function App() {
 
       <div className="layout">
         <aside className="sidebar">
+          {/* 날짜 선택 */}
           <section className="input-group">
-            <label>Baseball Savant URL / game_pk</label>
+            <label>Date</label>
+            <input type="date" value={dateStr}
+              onChange={e=>{ setDateStr(e.target.value); setGames([]); setGamePk(''); setPitchers([]); setSelected(null); setPitchData([]); }}
+              style={{padding:'0.5rem 0.7rem',border:'1px solid var(--gray-mid)',borderRadius:'6px',fontSize:'0.85rem',background:'var(--cream)',color:'var(--navy)',width:'100%'}}
+            />
+          </section>
+
+          {/* 경기 선택 */}
+          {games.length>0 && (
+            <section className="input-group">
+              <label>Game</label>
+              <div className="select-wrapper">
+                <select value={gamePk} onChange={e=>{
+                  setGamePk(e.target.value);
+                  setInput(e.target.value);
+                  setPitchers([]); setSelected(null); setPitchData([]);
+                }}>
+                  <option value="">경기 선택...</option>
+                  {games.map(g=><option key={g.gamePk} value={g.gamePk}>{g.label}</option>)}
+                </select>
+                <ChevronDown size={14} className="select-icon"/>
+              </div>
+              {gamePk && (
+                <button className="btn-icon" style={{marginTop:'0.4rem',width:'100%',justifyContent:'center',gap:'0.4rem'}}
+                  onClick={handleFetch} disabled={loading}>
+                  <Search size={14}/> Load Game
+                </button>
+              )}
+            </section>
+          )}
+
+          <section className="input-group">
+            <label>또는 직접 입력 (URL / game_pk)</label>
             <div className="search-box">
               <input type="text" placeholder="URL 또는 game_pk..."
                 value={input} onChange={e=>setInput(e.target.value)}
@@ -537,6 +616,13 @@ export default function App() {
                 {autoUpdate?`${countdown}s`:'Auto'}
               </button>
             </div>
+            {gamePk && (
+              <button className="btn-download" style={{width:'100%',justifyContent:'center',gap:'0.4rem'}}
+                onClick={async ()=>{ if(selected) await loadPitchData(gamePk,selected); await fetchBoxscore(gamePk); }}
+                disabled={loading}>
+                <RotateCcw size={14}/> Refresh All
+              </button>
+            )}
           </>)}
 
           {loading && <div className="loading-bar"/>}
@@ -615,10 +701,11 @@ export default function App() {
                     </div>
                     <div className="table-scroll">
                       <table className="stats-table">
-                        <thead><tr><th>Pitch</th><th>Batter</th><th>Event</th><th>EV (mph)</th><th>LA (°)</th><th>Dist (ft)</th><th>xBA</th></tr></thead>
+                        <thead><tr><th>Inn</th><th>Pitch</th><th>Batter</th><th>Event</th><th>EV (mph)</th><th>LA (°)</th><th>Dist (ft)</th><th>xBA</th></tr></thead>
                         <tbody>
                           {bipData.map((d,i)=>(
                             <tr key={i}>
+                              <td>{d.inning}</td>
                               <td className="pitch-cell" style={{borderLeft:`4px solid ${colorMap[d.pitch_name]||GRAY_MID}`}}>{d.pitch_name}</td>
                               <td>{d.batter_name}</td>
                               <td>{d.events}</td>
