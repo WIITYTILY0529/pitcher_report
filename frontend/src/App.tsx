@@ -637,14 +637,14 @@ export default function App() {
                 {autoUpdate?<Pause size={14}/>:<Play size={14}/>}
                 {autoUpdate?`${countdown}s`:'Auto'}
               </button>
+              {gamePk && (
+                <button className="btn-auto"
+                  onClick={async ()=>{ if(selected) await loadPitchData(gamePk,selected); await fetchBoxscore(gamePk); }}
+                  disabled={loading}>
+                  <RotateCcw size={14}/>
+                </button>
+              )}
             </div>
-            {gamePk && (
-              <button className="btn-download" style={{width:'100%',justifyContent:'center',gap:'0.4rem'}}
-                onClick={async ()=>{ if(selected) await loadPitchData(gamePk,selected); await fetchBoxscore(gamePk); }}
-                disabled={loading}>
-                <RotateCcw size={14}/> Refresh All
-              </button>
-            )}
           </>)}
 
           {loading && <div className="loading-bar"/>}
