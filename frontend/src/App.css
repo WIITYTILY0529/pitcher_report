@@ -588,7 +588,7 @@ body {
   .bs-cell { padding: 0.15rem 0.4rem; min-width: 30px; }
 
   /* 차트 정사각형 최대 너비 해제 */
-  .chart-square { max-width: 100%; }
+  .chart-square { max-width: 75vw; margin: 0 auto; }
 
   /* 테이블 폰트 축소 */
   .stats-table { font-size: 0.75rem; }
