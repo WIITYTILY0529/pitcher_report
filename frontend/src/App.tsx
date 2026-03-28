@@ -63,22 +63,37 @@ interface PitchRecord {
   inning: number|null;
 }
 
-// ── Plotly DOM 렌더러 — 컨테이너 크기에 맞게 자동 조절 ──────────────────
+// ── Plotly DOM 렌더러 — 컨테이너 실제 크기를 측정해서 명시적으로 전달 ──
 function PlotChart({ id, data, layout }: { id: string; data: any[]; layout: any }) {
   const ref = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!ref.current) return;
-    (Plotly as any).react(ref.current, data, {
-      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#FAFBFD',
-      font: { family: 'Inter, sans-serif', color: NAVY },
-      margin: { l: 52, r: 20, t: 16, b: 52 },
-      showlegend: true,
-      legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.12, font: { size: 12 } },
-      autosize: true,
-      ...layout,
-    }, { displayModeBar: false, responsive: true });
+    const el = ref.current;
+
+    function render() {
+      const w = el.clientWidth;
+      if (!w) return;
+      (Plotly as any).react(el, data, {
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#FAFBFD',
+        font: { family: 'Inter, sans-serif', color: NAVY },
+        margin: { l: 48, r: 12, t: 12, b: 48 },
+        showlegend: true,
+        legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.14, font: { size: 11 } },
+        width: w,
+        height: w,   // 정사각형
+        ...layout,
+      }, { displayModeBar: false });
+    }
+
+    render();
+
+    const ro = new ResizeObserver(() => render());
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [data, layout]);
-  return <div id={id} ref={ref} style={{ width: '100%', height: '100%' }} />;
+
+  return <div id={id} ref={ref} style={{ width: '100%' }} />;
 }
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────

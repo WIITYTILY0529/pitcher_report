@@ -368,8 +368,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-width: 1000px;
+  max-width: 900px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .chart-block {
@@ -380,30 +381,16 @@ body {
   border: 1px solid var(--gray-lite);
 }
 
-/* 차트 영역을 정사각형으로 강제 */
+/* 차트 영역 — Plotly가 직접 width/height를 받으므로 wrapper만 */
 .chart-square {
-  position: relative;
   width: 100%;
   max-width: 640px;
-  aspect-ratio: 1 / 1;
   margin: 0 auto;
-}
-
-.chart-square > div {
-  position: absolute;
-  inset: 0;
 }
 
 @media (max-width: 768px) {
   .chart-square {
     max-width: 100%;
-    aspect-ratio: unset;
-    height: 72vw;   /* 화면 너비의 72% = 거의 정사각형 */
-  }
-  .chart-square > div {
-    position: static;
-    width: 100%;
-    height: 100%;
   }
 }
 
