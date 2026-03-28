@@ -247,11 +247,14 @@ function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
   }).filter(Boolean) as Record<string,any>[];
 }
 
-// 어제 날짜를 YYYY-MM-DD로 반환 (사용자 로컬 기준)
+// 어제 날짜를 YYYY-MM-DD로 반환 (사용자 로컬 시간 기준)
 function getYesterday(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 interface GameOption { gamePk: string; label: string }
