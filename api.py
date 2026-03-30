@@ -20,7 +20,7 @@ app.add_middleware(
 )
 
 NEEDED_COLS = [
-    'pitcher_name', 'pitch_name', 'stand',
+    'pitcher_name', 'pitch_name', 'stand', 'pitcher',
     'plate_x', 'plate_z',
     'breakXInches', 'breakZInducedInches',
     'start_speed', 'spin_rate', 'extension',

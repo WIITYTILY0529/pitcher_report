@@ -44,7 +44,7 @@ function getPitchColor(name: string): string {
 const NEEDED_COLS = new Set([
   'pitcher_name','pitch_name','stand','plate_x','plate_z',
   'breakXInches','breakZInducedInches','start_speed','spin_rate','extension',
-  'x0','z0','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
+  'x0','z0','pitcher','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
   'description','call','vy0','ay','vz0','az','game_total_pitches','inning',
 ]);
 
@@ -55,6 +55,7 @@ interface PitchRecord {
   breakXInches: number|null; breakZInducedInches: number|null;
   start_speed: number|null; spin_rate: number|null; extension: number|null;
   x0: number|null; z0: number|null;
+  pitcher: number|null;
   events: string|null; batter_name: string|null;
   launch_speed: number|null; launch_angle: number|null;
   hit_distance: number|null; xba: number|null;
@@ -259,6 +260,13 @@ function getYesterday(): string {
 
 interface GameOption { gamePk: string; label: string }
 
+// "6' 0\"" → feet (소수) 변환
+function parseHeightFt(h: string): number | null {
+  const m = h.match(/(\d+)'\s*(\d+)/);
+  if (!m) return null;
+  return parseInt(m[1]) + parseInt(m[2]) / 12;
+}
+
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────
 export default function App() {
   const [dateStr, setDateStr]       = useState(getYesterday);
@@ -271,6 +279,7 @@ export default function App() {
   const [stand, setStand]           = useState('both');
   const [pitchData, setPitchData]   = useState<PitchRecord[]>([]);
   const [boxscore, setBoxscore]     = useState<Record<string,any>>({});
+  const [pitcherHeightFt, setPitcherHeightFt] = useState<number|null>(null);
   const [loading, setLoading]       = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [countdown, setCountdown]   = useState(15);
@@ -348,6 +357,21 @@ export default function App() {
       if (selPitches.length) f = f.filter(d=>selPitches.includes(d.pitch_name));
       if (stand!=='both') { const c=stand==='left'?'L':'R'; f=f.filter(d=>d.stand===c); }
       setPitchData(f); setError('');
+
+      // 투수 키 조회 (mlbam id → MLB Stats API)
+      const pitcherId = f.find(d=>d.pitcher)?.pitcher;
+      if (pitcherId) {
+        try {
+          const res = await fetch(`https://statsapi.mlb.com/api/v1/people?personIds=${pitcherId}`);
+          if (res.ok) {
+            const json = await res.json();
+            const h = json?.people?.[0]?.height;
+            setPitcherHeightFt(h ? parseHeightFt(h) : null);
+          }
+        } catch { setPitcherHeightFt(null); }
+      } else {
+        setPitcherHeightFt(null);
+      }
     } catch(e:any) { setError(e.message??'Failed'); }
     finally { setLoading(false); }
   }
@@ -495,6 +519,23 @@ export default function App() {
   const relLayout = {
     xaxis:ax({range:[-5,5],title:{text:'Release X (ft)',font:{color:GRAY_DARK,size:10}},zeroline:true,scaleanchor:'y',scaleratio:1}),
     yaxis:ax({range:[4,8],title:{text:'Release Z (ft)',font:{color:GRAY_DARK,size:10}}}),
+    shapes: pitcherHeightFt ? [
+      {
+        type: 'line',
+        x0: -5, x1: 5,
+        y0: pitcherHeightFt, y1: pitcherHeightFt,
+        line: { color: NAVY, width: 1.5, dash: 'solid' },
+      }
+    ] : [],
+    annotations: pitcherHeightFt ? [
+      {
+        x: 4.5, y: pitcherHeightFt,
+        text: `${Math.floor(pitcherHeightFt)}'${Math.round((pitcherHeightFt % 1) * 12)}"`,
+        showarrow: false,
+        font: { color: NAVY, size: 10, family: 'Inter' },
+        yshift: 8,
+      }
+    ] : [],
   };
 
 
