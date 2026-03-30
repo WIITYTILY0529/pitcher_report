@@ -522,14 +522,14 @@ export default function App() {
     shapes: pitcherHeightFt ? [
       {
         type: 'line',
-        x0: -5, x1: 5,
-        y0: pitcherHeightFt, y1: pitcherHeightFt,
+        x0: 0, x1: 0,
+        y0: 0, y1: pitcherHeightFt,
         line: { color: NAVY, width: 1.5, dash: 'solid' },
       }
     ] : [],
     annotations: pitcherHeightFt ? [
       {
-        x: 4.5, y: pitcherHeightFt,
+        x: 0, y: pitcherHeightFt,
         text: `${Math.floor(pitcherHeightFt)}'${Math.round((pitcherHeightFt % 1) * 12)}"`,
         showarrow: false,
         font: { color: NAVY, size: 10, family: 'Inter' },
