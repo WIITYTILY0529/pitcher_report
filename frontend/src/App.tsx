@@ -486,8 +486,14 @@ export default function App() {
   // ── 공통 축 스타일 ────────────────────────────────────────────────────────
   const ax = (extra={}) => ({ gridcolor:GRAY_MID, zerolinecolor:GRAY_MID, linecolor:GRAY_MID, tickfont:{color:GRAY_DARK,size:10}, ...extra });
 
+  // 야구공 둘레 9인치 → 지름 9/π ≈ 2.86인치 ≈ 0.239ft → 반지름 ≈ 0.119ft
+  const BALL_R = (9 / Math.PI) / 2 / 12;
   // 스트라이크존 shapes
   const zoneShapes = [
+    // 공 반지름 확장 존 (점선) — 실제 스트라이크 판정 경계
+    {type:'rect',x0:-0.83-BALL_R,y0:1.5-BALL_R,x1:0.83+BALL_R,y1:3.5+BALL_R,
+      line:{color:GRAY_DARK,width:1,dash:'dot'},fillcolor:'rgba(0,0,0,0)'},
+    // 실제 스트라이크존 (실선)
     {type:'rect',x0:-0.83,y0:1.5,x1:0.83,y1:3.5,line:{color:NAVY,width:2}},
     {type:'line',x0:-0.83+(1.66/3),y0:1.5,x1:-0.83+(1.66/3),y1:3.5,line:{color:GRAY_MID,width:0.7,dash:'dash'}},
     {type:'line',x0:-0.83+(1.66*2/3),y0:1.5,x1:-0.83+(1.66*2/3),y1:3.5,line:{color:GRAY_MID,width:0.7,dash:'dash'}},
