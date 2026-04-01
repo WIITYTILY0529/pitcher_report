@@ -44,7 +44,7 @@ function getPitchColor(name: string): string {
 const NEEDED_COLS = new Set([
   'pitcher_name','pitch_name','stand','plate_x','plate_z',
   'breakXInches','breakZInducedInches','start_speed','spin_rate','extension',
-  'x0','z0','pitcher','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
+  'x0','z0','pitcher','zone','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
   'description','call','vy0','ay','vz0','az','game_total_pitches','inning',
 ]);
 
@@ -61,7 +61,7 @@ interface PitchRecord {
   hit_distance: number|null; xba: number|null;
   description: string|null; call: string|null;
   vy0: number|null; ay: number|null; vz0: number|null; az: number|null;
-  inning: number|null;
+  inning: number|null; zone: number|null;
 }
 
 // ── Plotly DOM 렌더러 — 컨테이너 실제 크기를 측정해서 명시적으로 전달 ──
@@ -231,6 +231,11 @@ function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
     const swings  = sub.filter(d => d.description && swingDescs.has(d.description)).length;
     const strikes = sub.filter(d=>d.call&&['S','X'].includes(d.call.toUpperCase())).length;
     const pitchPct = totalFiltered > 0 ? ((sub.length / totalFiltered) * 100).toFixed(1) : '-';
+    // Zone%: zone 1~9 / 전체
+    const inZone  = sub.filter(d => d.zone != null && d.zone >= 1 && d.zone <= 9).length;
+    // Chase%: zone 11~14 중 스윙 / zone 11~14 전체
+    const outZone = sub.filter(d => d.zone != null && d.zone >= 11);
+    const chaseSwings = outZone.filter(d => d.description && swingDescs.has(d.description)).length;
     return {
       Pitch:     pt,
       'Pitch%':  `${pitchPct}%`,
@@ -241,6 +246,8 @@ function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
       HB:        avg(hbs)?.toFixed(1)    ?? '-',
       Spin:      spins.length ? Math.round(spins.reduce((a,b)=>a+b)/spins.length) : '-',
       Ext:       avg(exts)?.toFixed(1)   ?? '-',
+      'Zone%':   sub.length > 0 ? `${((inZone/sub.length)*100).toFixed(1)}%` : '-',
+      'Chase%':  outZone.length > 0 ? `${((chaseSwings/outZone.length)*100).toFixed(1)}%` : '-',
       'Whiff%':  swings > 0 ? `${((whiffs/swings)*100).toFixed(1)}%` : '-',
       'Strike%': `${((strikes/sub.length)*100).toFixed(1)}%`,
       Count:     sub.length,
@@ -285,6 +292,7 @@ export default function App() {
   const [countdown, setCountdown]   = useState(15);
   const [error, setError]           = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [inningFilter, setInningFilter] = useState<number|'all'>('all');
   const timerRef = useRef<ReturnType<typeof setInterval>|null>(null);
 
   async function fetchFromSavant(gk: string): Promise<PitchRecord[]> {
@@ -452,6 +460,14 @@ export default function App() {
   const pitchTypes = [...new Set(pitchData.map(d=>d.pitch_name).filter(Boolean))];
   const colorMap   = Object.fromEntries(pitchTypes.map(pt => [pt, getPitchColor(pt)]));
 
+  // 이닝 필터 적용
+  const filteredData = inningFilter === 'all'
+    ? pitchData
+    : pitchData.filter(d => d.inning === inningFilter);
+
+  // 사용 가능한 이닝 목록
+  const availableInnings = [...new Set(pitchData.map(d=>d.inning).filter((v): v is number => v!=null))].sort((a,b)=>a-b);
+
   // 선택된 투수의 박스스코어 스탯 매칭 (성/이름 순서 다를 수 있어서 느슨하게 매칭)
   const selectedBoxscore = (() => {
     if (!selected || !Object.keys(boxscore).length) return null;
@@ -464,21 +480,48 @@ export default function App() {
     return null;
   })();
 
+  // Hard Hit 허용 수 (EV >= 95mph 인플레이 타구)
+  const hardHitCount = pitchData.filter(d =>
+    d.events && d.launch_speed != null && (d.launch_speed ?? 0) >= 95
+  ).length;
+
+  // Export Report PNG
+  async function handleExportReport() {
+    const el = document.getElementById('export-report');
+    if (!el) return;
+    const html2canvas = (await import('html2canvas')).default;
+    const overflowEls = Array.from(el.querySelectorAll<HTMLElement>('*')).concat(el);
+    const prevStyles = overflowEls.map(e => e.style.overflow);
+    overflowEls.forEach(e => { e.style.overflow = 'visible'; });
+    const canvas = await html2canvas(el, {
+      scale: 2, backgroundColor: '#ffffff', useCORS: true,
+      scrollX: 0, scrollY: 0,
+      width: el.scrollWidth, height: el.scrollHeight,
+      windowWidth: el.scrollWidth, windowHeight: el.scrollHeight,
+    });
+    overflowEls.forEach((e, i) => { e.style.overflow = prevStyles[i]; });
+    const link = document.createElement('a');
+    const base = selected?.name.replace(/,?\s+/g,'_') ?? 'report';
+    link.download = `Report_${base}_${dateStr}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
   // ── traces ────────────────────────────────────────────────────────────────
   // 로케이션: L+R 합쳐서 하나
-  const zoneTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
+  const zoneTraces = makeEllipseTraces(filteredData, pitchTypes, colorMap,
     'plate_x','plate_z',
     d=>`<b>${d.pitch_name}</b><br>${d.start_speed} mph · ${d.spin_rate} rpm<br>${d.stand==='L'?'vs LHB':'vs RHB'}`);
 
-  const moveTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,    'breakXInches','breakZInducedInches',
+  const moveTraces = makeEllipseTraces(filteredData, pitchTypes, colorMap,    'breakXInches','breakZInducedInches',
     d=>`<b>${d.pitch_name}</b><br>IVB: ${d.breakZInducedInches}"<br>HB: ${d.breakXInches}"<br>${d.start_speed} mph`);
 
-  const relTraces = makeEllipseTraces(pitchData, pitchTypes, colorMap,
+  const relTraces = makeEllipseTraces(filteredData, pitchTypes, colorMap,
     'x0','z0',
     d=>`<b>${d.pitch_name}</b><br>X: ${(d.x0??0).toFixed(2)} ft<br>Z: ${(d.z0??0).toFixed(2)} ft`);
 
-  const stats   = calcStats(pitchData, pitchTypes, stand);
-  const bipData = pitchData
+  const stats   = calcStats(filteredData, pitchTypes, stand);
+  const bipData = filteredData
     .filter(d=>d.events&&d.launch_speed!=null)
     .sort((a,b)=>(a.inning??0)-(b.inning??0))
     .slice(0,20);
@@ -569,6 +612,7 @@ export default function App() {
                     ['K',  selectedBoxscore.strikeOuts],
                     ['NP', selectedBoxscore.numberOfPitches],
                     ['S',  selectedBoxscore.strikes],
+                    ['HH', hardHitCount],
                   ].map(([label, val]) => (
                     <div key={label as string} className="bs-cell">
                       <span className="bs-label">{label}</span>
@@ -695,6 +739,29 @@ export default function App() {
                 </button>
               )}
             </div>
+
+            {/* 이닝 필터 */}
+            {availableInnings.length > 0 && (
+              <section className="input-group">
+                <label>Inning Filter</label>
+                <div className="stand-btns" style={{flexWrap:'wrap'}}>
+                  <button className={`stand-btn ${inningFilter==='all'?'active':''}`}
+                    onClick={()=>setInningFilter('all')}>All</button>
+                  {availableInnings.map(inn=>(
+                    <button key={inn} className={`stand-btn ${inningFilter===inn?'active':''}`}
+                      onClick={()=>setInningFilter(inn)}>{inn}</button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Export Report */}
+            {pitchData.length > 0 && (
+              <button className="btn-download" style={{width:'100%',justifyContent:'center',gap:'0.5rem'}}
+                onClick={handleExportReport}>
+                <Download size={14}/> Export Report
+              </button>
+            )}
           </>)}
 
           {loading && <div className="loading-bar"/>}
@@ -703,7 +770,7 @@ export default function App() {
 
         <main className="main-content">
           {pitchData.length>0 ? (
-            <div className="report">
+            <div className="report" id="export-report">
               <div className="chart-stack">
                 <div className="chart-block">
                   <div className="chart-header">
