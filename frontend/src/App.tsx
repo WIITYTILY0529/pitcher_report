@@ -485,23 +485,177 @@ export default function App() {
     d.events && d.launch_speed != null && (d.launch_speed ?? 0) >= 95
   ).length;
 
-  // Export Report PNG
+  // Export Report — Canvas API로 직접 합성
   async function handleExportReport() {
-    const el = document.getElementById('export-report');
-    if (!el) return;
-    const html2canvas = (await import('html2canvas')).default;
-    const overflowEls = Array.from(el.querySelectorAll<HTMLElement>('*')).concat(el);
-    const prevStyles = overflowEls.map(e => e.style.overflow);
-    overflowEls.forEach(e => { e.style.overflow = 'visible'; });
-    const canvas = await html2canvas(el, {
-      scale: 2, backgroundColor: '#ffffff', useCORS: true,
-      scrollX: 0, scrollY: 0,
-      width: el.scrollWidth, height: el.scrollHeight,
-      windowWidth: el.scrollWidth, windowHeight: el.scrollHeight,
+    if (!selected || !pitchData.length) return;
+
+    // 1. Plotly 차트 3개를 이미지로 추출
+    async function plotToImg(id: string, size: number): Promise<HTMLImageElement> {
+      const el = document.getElementById(id);
+      if (!el) throw new Error(`${id} not found`);
+      const url: string = await (Plotly as any).toImage(el, { format: 'png', width: size, height: size });
+      return new Promise(res => { const img = new Image(); img.onload = () => res(img); img.src = url; });
+    }
+
+    const CHART_SIZE = 340;
+    const [imgMove, imgZone, imgRel] = await Promise.all([
+      plotToImg('plot-move', CHART_SIZE),
+      plotToImg('plot-zone', CHART_SIZE),
+      plotToImg('plot-rel',  CHART_SIZE),
+    ]);
+
+    // 2. Canvas 레이아웃 설정
+    const W = 1080;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+
+    // 높이 계산: 헤더 + 박스스코어 + 차트행 + 범례 + 테이블
+    const HEADER_H  = 110;
+    const BOX_H     = 60;
+    const CHART_ROW = CHART_SIZE + 20;
+    const LEGEND_H  = 40;
+    const TABLE_ROW = 36;
+    const TABLE_H   = TABLE_ROW * (stats.length + 1) + 20;
+    const TOTAL_H   = HEADER_H + BOX_H + CHART_ROW + LEGEND_H + TABLE_H + 40;
+
+    canvas.width  = W;
+    canvas.height = TOTAL_H;
+
+    // 배경
+    ctx.fillStyle = '#F5F6FA';
+    ctx.fillRect(0, 0, W, TOTAL_H);
+
+    // ── 헤더 ──────────────────────────────────────────────────────────────
+    ctx.fillStyle = '#0D1B2A';
+    ctx.fillRect(0, 0, W, HEADER_H);
+
+    ctx.fillStyle = '#F4B942';
+    ctx.font = 'bold 36px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(selected.name, W / 2, 48);
+
+    ctx.fillStyle = '#C8D0DC';
+    ctx.font = '18px Inter, sans-serif';
+    // 상대팀 정보
+    const gameLabel = games.find(g => g.gamePk === gamePk)?.label ?? `game_pk: ${gamePk}`;
+    ctx.fillText(`${dateStr}  ·  ${gameLabel}`, W / 2, 78);
+
+    ctx.fillStyle = '#8A95A3';
+    ctx.font = '14px Inter, sans-serif';
+    ctx.fillText(`${pitchData.length} pitches`, W / 2, 100);
+
+    // ── 박스스코어 행 ──────────────────────────────────────────────────────
+    let y = HEADER_H;
+    ctx.fillStyle = '#1B3A5C';
+    ctx.fillRect(0, y, W, BOX_H);
+
+    const bsItems: [string, any][] = selectedBoxscore ? [
+      ['IP', selectedBoxscore.inningsPitched],
+      ['H',  selectedBoxscore.hits],
+      ['R',  selectedBoxscore.runs],
+      ['ER', selectedBoxscore.earnedRuns],
+      ['BB', selectedBoxscore.baseOnBalls],
+      ['K',  selectedBoxscore.strikeOuts],
+      ['NP', selectedBoxscore.numberOfPitches],
+      ['S',  selectedBoxscore.strikes],
+      ['HH', hardHitCount],
+    ] : [['Pitches', pitchData.length]];
+
+    const cellW = W / bsItems.length;
+    bsItems.forEach(([label, val], i) => {
+      const cx = cellW * i + cellW / 2;
+      ctx.fillStyle = '#8A95A3';
+      ctx.font = 'bold 11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, cx, y + 18);
+      ctx.fillStyle = '#F4B942';
+      ctx.font = 'bold 22px Inter, sans-serif';
+      ctx.fillText(String(val ?? '-'), cx, y + 46);
     });
-    overflowEls.forEach((e, i) => { e.style.overflow = prevStyles[i]; });
+
+    // ── 차트 3개 가로 배치 ─────────────────────────────────────────────────
+    y = HEADER_H + BOX_H + 10;
+    const chartTitles = ['Pitch Location', 'Pitch Breaks', 'Release Point'];
+    const chartImgs   = [imgZone, imgMove, imgRel];
+    const chartX      = [20, (W - CHART_SIZE) / 2, W - CHART_SIZE - 20];
+
+    chartTitles.forEach((title, i) => {
+      ctx.fillStyle = '#0D1B2A';
+      ctx.font = 'bold 13px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(title, chartX[i] + CHART_SIZE / 2, y + 14);
+      ctx.drawImage(chartImgs[i], chartX[i], y + 18, CHART_SIZE, CHART_SIZE);
+    });
+
+    // ── 범례 ──────────────────────────────────────────────────────────────
+    y += CHART_SIZE + 24;
+    const legendItems = pitchTypes.map(pt => ({ label: pt, color: colorMap[pt] }));
+    const legendTotalW = legendItems.length * 140;
+    let lx = (W - legendTotalW) / 2;
+    legendItems.forEach(({ label, color }) => {
+      ctx.beginPath();
+      ctx.arc(lx + 8, y + 8, 7, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.fillStyle = '#0D1B2A';
+      ctx.font = '13px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, lx + 20, y + 13);
+      lx += 140;
+    });
+
+    // ── 통계 테이블 ────────────────────────────────────────────────────────
+    y += LEGEND_H;
+    if (stats.length > 0) {
+      const cols = Object.keys(stats[0]);
+      const colW = (W - 40) / cols.length;
+
+      // 헤더
+      ctx.fillStyle = '#0D1B2A';
+      ctx.fillRect(20, y, W - 40, TABLE_ROW);
+      cols.forEach((col, i) => {
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(col, 20 + colW * i + colW / 2, y + 23);
+      });
+      y += TABLE_ROW;
+
+      // 데이터 행
+      stats.forEach((row, ri) => {
+        ctx.fillStyle = ri % 2 === 0 ? '#EEF1F7' : 'white';
+        ctx.fillRect(20, y, W - 40, TABLE_ROW);
+
+        cols.forEach((col, ci) => {
+          const val = String(row[col]);
+          if (ci === 0) {
+            // 구종 셀 — 색상 강조
+            ctx.fillStyle = colorMap[val] ?? '#0D1B2A';
+            ctx.fillRect(20, y, colW, TABLE_ROW);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 12px Inter, sans-serif';
+          } else {
+            ctx.fillStyle = '#0D1B2A';
+            ctx.font = '12px Inter, sans-serif';
+          }
+          ctx.textAlign = 'center';
+          ctx.fillText(val, 20 + colW * ci + colW / 2, y + 23);
+        });
+
+        // 행 구분선
+        ctx.strokeStyle = '#C8D0DC';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(20, y + TABLE_ROW);
+        ctx.lineTo(W - 20, y + TABLE_ROW);
+        ctx.stroke();
+        y += TABLE_ROW;
+      });
+    }
+
+    // 저장
     const link = document.createElement('a');
-    const base = selected?.name.replace(/,?\s+/g,'_') ?? 'report';
+    const base = selected.name.replace(/,?\s+/g, '_');
     link.download = `Report_${base}_${dateStr}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
