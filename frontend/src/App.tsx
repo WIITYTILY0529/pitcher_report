@@ -292,7 +292,7 @@ export default function App() {
   const [countdown, setCountdown]   = useState(15);
   const [error, setError]           = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [inningFilter, setInningFilter] = useState<number|'all'>('all');
+  const [inningFilter, setInningFilter] = useState<Set<number>|'all'>('all');
   const timerRef = useRef<ReturnType<typeof setInterval>|null>(null);
 
   async function fetchFromSavant(gk: string): Promise<PitchRecord[]> {
@@ -460,10 +460,10 @@ export default function App() {
   const pitchTypes = [...new Set(pitchData.map(d=>d.pitch_name).filter(Boolean))];
   const colorMap   = Object.fromEntries(pitchTypes.map(pt => [pt, getPitchColor(pt)]));
 
-  // 이닝 필터 적용
+  // 이닝 필터 적용 (다중 선택)
   const filteredData = inningFilter === 'all'
     ? pitchData
-    : pitchData.filter(d => d.inning === inningFilter);
+    : pitchData.filter(d => d.inning != null && (inningFilter as Set<number>).has(d.inning));
 
   // 사용 가능한 이닝 목록
   const availableInnings = [...new Set(pitchData.map(d=>d.inning).filter((v): v is number => v!=null))].sort((a,b)=>a-b);
@@ -811,7 +811,7 @@ export default function App() {
               </div>
               {gamePk && (
                 <button className="btn-icon" style={{marginTop:'0.4rem',width:'100%',justifyContent:'center',gap:'0.4rem'}}
-                  onClick={()=>{ handleFetch(); setDrawerOpen(false); }} disabled={loading}>
+                  onClick={()=>{ handleFetch(); }} disabled={loading}>
                   <Search size={14}/> Load Game
                 </button>
               )}
@@ -902,8 +902,17 @@ export default function App() {
                   <button className={`stand-btn ${inningFilter==='all'?'active':''}`}
                     onClick={()=>setInningFilter('all')}>All</button>
                   {availableInnings.map(inn=>(
-                    <button key={inn} className={`stand-btn ${inningFilter===inn?'active':''}`}
-                      onClick={()=>setInningFilter(inn)}>{inn}</button>
+                    <button key={inn}
+                      className={`stand-btn ${inningFilter!=='all'&&(inningFilter as Set<number>).has(inn)?'active':''}`}
+                      onClick={()=>{
+                        if (inningFilter === 'all') {
+                          setInningFilter(new Set([inn]));
+                        } else {
+                          const s = new Set(inningFilter as Set<number>);
+                          s.has(inn) ? s.delete(inn) : s.add(inn);
+                          setInningFilter(s.size === 0 ? 'all' : s);
+                        }
+                      }}>{inn}</button>
                   ))}
                 </div>
               </section>
