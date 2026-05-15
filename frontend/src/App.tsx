@@ -127,44 +127,83 @@ function calcVaa(p: PitchRecord): number | null {
 }
 
 function avg(arr: number[]) { return arr.length ? arr.reduce((a,b)=>a+b)/arr.length : null; }
-function std(arr: number[], mean: number) {
-  return arr.length < 2 ? 0 : Math.sqrt(arr.reduce((s,v)=>s+(v-mean)**2,0)/arr.length);
+
+// ── 공분산 타원 계산 (2×2 공분산 행렬 → 고유값 분해 → 회전 각도 + 장/단축) ──
+function covarianceEllipse(xs: number[], ys: number[]): { cx: number; cy: number; rx: number; ry: number; angle: number } {
+  const n = xs.length;
+  const cx = xs.reduce((a,b)=>a+b,0) / n;
+  const cy = ys.reduce((a,b)=>a+b,0) / n;
+
+  if (n < 3) return { cx, cy, rx: 0.15, ry: 0.15, angle: 0 };
+
+  // 공분산 행렬 요소
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - cx;
+    const dy = ys[i] - cy;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  sxx /= n; syy /= n; sxy /= n;
+
+  // 고유값 (2×2 대칭 행렬의 해석적 풀이)
+  const trace = sxx + syy;
+  const det = sxx * syy - sxy * sxy;
+  const disc = Math.sqrt(Math.max((trace * trace) / 4 - det, 0));
+  const lambda1 = trace / 2 + disc;  // 큰 고유값
+  const lambda2 = trace / 2 - disc;  // 작은 고유값
+
+  // 1-sigma 반지름 (고유값의 제곱근)
+  const rx = Math.max(Math.sqrt(Math.max(lambda1, 0)), 0.15);
+  const ry = Math.max(Math.sqrt(Math.max(lambda2, 0)), 0.15);
+
+  // 회전 각도 (라디안) — 큰 고유값에 대응하는 고유벡터 방향
+  const angle = Math.atan2(2 * sxy, sxx - syy) / 2;
+
+  return { cx, cy, rx, ry, angle };
 }
 
-// 1-sigma ellipse를 Plotly scatter trace로 생성 (N=72점 근사)
-function ellipseTrace(cx: number, cy: number, rx: number, ry: number, color: string, name: string) {
+// 회전 타원을 Plotly scatter trace로 생성 (N=72점 근사)
+function ellipseTrace(cx: number, cy: number, rx: number, ry: number, angle: number, color: string, name: string) {
   const N = 72;
-  const xs: number[] = [], ys: number[] = [];
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const xpts: number[] = [], ypts: number[] = [];
   for (let i = 0; i <= N; i++) {
-    const a = (2 * Math.PI * i) / N;
-    xs.push(cx + rx * Math.cos(a));
-    ys.push(cy + ry * Math.sin(a));
+    const t = (2 * Math.PI * i) / N;
+    const px = rx * Math.cos(t);
+    const py = ry * Math.sin(t);
+    xpts.push(cx + px * cosA - py * sinA);
+    ypts.push(cy + px * sinA + py * cosA);
   }
   return {
-    x: xs, y: ys, mode: 'lines', name, legendgroup: name,
+    x: xpts, y: ypts, mode: 'lines', name, legendgroup: name,
     showlegend: false, hoverinfo: 'skip',
     line: { color, width: 1.5, dash: 'dash' },
   };
 }
 
-// 채운 타원 (fill)
-function ellipseFillTrace(cx: number, cy: number, rx: number, ry: number, color: string, name: string) {
+// 채운 회전 타원 (fill)
+function ellipseFillTrace(cx: number, cy: number, rx: number, ry: number, angle: number, color: string, name: string) {
   const N = 72;
-  const xs: number[] = [], ys: number[] = [];
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const xpts: number[] = [], ypts: number[] = [];
   for (let i = 0; i <= N; i++) {
-    const a = (2 * Math.PI * i) / N;
-    xs.push(cx + rx * Math.cos(a));
-    ys.push(cy + ry * Math.sin(a));
+    const t = (2 * Math.PI * i) / N;
+    const px = rx * Math.cos(t);
+    const py = ry * Math.sin(t);
+    xpts.push(cx + px * cosA - py * sinA);
+    ypts.push(cy + px * sinA + py * cosA);
   }
   return {
-    x: xs, y: ys, mode: 'lines', name, legendgroup: name,
+    x: xpts, y: ypts, mode: 'lines', name, legendgroup: name,
     showlegend: false, hoverinfo: 'skip', fill: 'toself',
     fillcolor: color + '28', // ~16% opacity
     line: { color: 'rgba(0,0,0,0)', width: 0 },
   };
 }
 
-// 구종별 scatter + ellipse traces 생성
+// 구종별 scatter + covariance ellipse traces 생성
 function makeEllipseTraces(
   data: PitchRecord[],
   pitchTypes: string[],
@@ -178,18 +217,20 @@ function makeEllipseTraces(
   for (const pt of pitchTypes) {
     const sub = (filterFn ? data.filter(filterFn) : data)
       .filter(d => d.pitch_name === pt);
-    const xs = sub.map(d => d[xKey] as number).filter(v => v != null && isFinite(v));
-    const ys = sub.map(d => d[yKey] as number).filter(v => v != null && isFinite(v));
-    if (!xs.length) continue;
+    // x, y 쌍이 모두 유효한 것만 사용
+    const pairs = sub
+      .map(d => [d[xKey] as number, d[yKey] as number] as [number, number])
+      .filter(([x, y]) => x != null && y != null && isFinite(x) && isFinite(y));
+    if (!pairs.length) continue;
+
+    const xs = pairs.map(p => p[0]);
+    const ys = pairs.map(p => p[1]);
     const col = colorMap[pt];
-    const cx = avg(xs)!;
-    const cy = avg(ys)!;
-    const rx = Math.max(std(xs, cx), 0.15);
-    const ry = Math.max(std(ys, cy), 0.15);
+    const { cx, cy, rx, ry, angle } = covarianceEllipse(xs, ys);
 
     // 채운 타원 → 외곽선 타원 → 산점도 → 중심점 순서
-    traces.push(ellipseFillTrace(cx, cy, rx, ry, col, pt));
-    traces.push(ellipseTrace(cx, cy, rx, ry, col, pt));
+    traces.push(ellipseFillTrace(cx, cy, rx, ry, angle, col, pt));
+    traces.push(ellipseTrace(cx, cy, rx, ry, angle, col, pt));
     traces.push({
       x: xs, y: ys, mode: 'markers', name: pt, legendgroup: pt,
       showlegend: true, type: 'scatter',
