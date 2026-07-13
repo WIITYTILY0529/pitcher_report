@@ -1,0 +1,1078 @@
+import { useState, useEffect, useRef } from 'react';
+import Plotly from 'plotly.js-dist-min';
+import { Search, RotateCcw, Play, Pause, ChevronDown, Check, Download, Menu, X } from 'lucide-react';
+import './App.css';
+
+const WORKER_URL = import.meta.env.VITE_WORKER_URL ?? 'http://localhost:8787';
+
+const NAVY     = '#0D1B2A';
+const NAVY_MID = '#1B3A5C';
+const GRAY_LITE= '#EEF1F7';
+const GRAY_MID = '#C8D0DC';
+const GRAY_DARK= '#8A95A3';
+
+// ── 구종별 고정 색상 (구종 추가/제거해도 색상 불변) ─────────────────────
+const PITCH_COLORS: Record<string, string> = {
+  '4-Seam Fastball': '#E63946',
+  'Sinker':          '#FF6B6B',
+  'Cutter':          '#F4A261',
+  'Slider':          '#E9C46A',
+  'Sweeper':         '#FFB703',
+  'Curveball':       '#457B9D',
+  'Knuckle Curve':   '#5B8DB8',
+  'Changeup':        '#2A9D8F',
+  'Splitter':        '#8338EC',
+  'Knuckleball':     '#06D6A0',
+  'Eephus':          '#FB5607',
+  'Screwball':       '#FF006E',
+  'Forkball':        '#3A86FF',
+  'Slurve':          '#FFBE0B',
+};
+
+// 미등록 구종은 구종명 해시 기반으로 고정 색상 할당
+const FALLBACK_PALETTE = ['#E63946','#2A9D8F','#E9C46A','#457B9D','#F4A261','#8338EC','#06D6A0','#FFB703','#FB5607'];
+function hashColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return FALLBACK_PALETTE[h % FALLBACK_PALETTE.length];
+}
+
+function getPitchColor(name: string): string {
+  return PITCH_COLORS[name] ?? hashColor(name);
+}
+
+const NEEDED_COLS = new Set([
+  'pitcher_name','pitch_name','stand','plate_x','plate_z',
+  'breakXInches','breakZInducedInches','start_speed','spin_rate','extension',
+  'x0','z0','pitcher','zone','events','batter_name','launch_speed','launch_angle','hit_distance','xba',
+  'description','call','vy0','ay','vz0','az','game_total_pitches','inning',
+]);
+
+interface Pitcher { name: string; pitch_types: string[] }
+interface PitchRecord {
+  pitcher_name: string; pitch_name: string; stand: string;
+  plate_x: number|null; plate_z: number|null;
+  breakXInches: number|null; breakZInducedInches: number|null;
+  start_speed: number|null; spin_rate: number|null; extension: number|null;
+  x0: number|null; z0: number|null;
+  pitcher: number|null;
+  events: string|null; batter_name: string|null;
+  launch_speed: number|null; launch_angle: number|null;
+  hit_distance: number|null; xba: number|null;
+  description: string|null; call: string|null;
+  vy0: number|null; ay: number|null; vz0: number|null; az: number|null;
+  inning: number|null; zone: number|null;
+}
+
+// ── Plotly DOM 렌더러 — 컨테이너 실제 크기를 측정해서 명시적으로 전달 ──
+function PlotChart({ id, data, layout }: { id: string; data: any[]; layout: any }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const el = ref.current;
+
+    function render() {
+      const w = el.clientWidth;
+      if (!w) return;
+      (Plotly as any).react(el, data, {
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#FAFBFD',
+        font: { family: 'Inter, sans-serif', color: NAVY },
+        margin: { l: 48, r: 12, t: 12, b: 48 },
+        showlegend: true,
+        legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.14, font: { size: 11 } },
+        width: w,
+        height: w,   // 정사각형
+        ...layout,
+      }, { displayModeBar: false });
+    }
+
+    render();
+
+    const ro = new ResizeObserver(() => render());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data, layout]);
+
+  return <div id={id} ref={ref} style={{ width: '100%' }} />;
+}
+
+// ── 유틸 ──────────────────────────────────────────────────────────────────
+function extractGamePk(v: string): string | null {
+  const s = v.trim();
+  if (/^\d+$/.test(s)) return s;
+  try {
+    const u = new URL(s.startsWith('http') ? s : `https://x.com?${s}`);
+    const g = u.searchParams.get('gamePk') ?? u.searchParams.get('game_pk');
+    if (g) return g;
+  } catch {}
+  const m = s.match(/#(\d+)/) ?? s.match(/\/(\d{6,})/);
+  return m ? m[1] : null;
+}
+
+function cleanRecord(raw: Record<string, unknown>): PitchRecord {
+  const out: Record<string, unknown> = {};
+  for (const k of NEEDED_COLS) {
+    const v = raw[k];
+    out[k] = (typeof v === 'number' && !isFinite(v)) ? null : (v ?? null);
+  }
+  return out as unknown as PitchRecord;
+}
+
+function calcVaa(p: PitchRecord): number | null {
+  if (!p.vy0||!p.ay||!p.vz0||!p.az) return null;
+  const vyf = -Math.sqrt(Math.abs(p.vy0**2 - 2*p.ay*(50 - 17/12)));
+  const t = (vyf - p.vy0) / p.ay;
+  return -(Math.atan((p.vz0 + p.az*t) / vyf) * (180/Math.PI));
+}
+
+function avg(arr: number[]) { return arr.length ? arr.reduce((a,b)=>a+b)/arr.length : null; }
+
+// ── 공분산 타원 계산 (2×2 공분산 행렬 → 고유값 분해 → 회전 각도 + 장/단축) ──
+function covarianceEllipse(xs: number[], ys: number[]): { cx: number; cy: number; rx: number; ry: number; angle: number } {
+  const n = xs.length;
+  const cx = xs.reduce((a,b)=>a+b,0) / n;
+  const cy = ys.reduce((a,b)=>a+b,0) / n;
+
+  if (n < 3) return { cx, cy, rx: 0.15, ry: 0.15, angle: 0 };
+
+  // 공분산 행렬 요소
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - cx;
+    const dy = ys[i] - cy;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  sxx /= n; syy /= n; sxy /= n;
+
+  // 고유값 (2×2 대칭 행렬의 해석적 풀이)
+  const trace = sxx + syy;
+  const det = sxx * syy - sxy * sxy;
+  const disc = Math.sqrt(Math.max((trace * trace) / 4 - det, 0));
+  const lambda1 = trace / 2 + disc;  // 큰 고유값
+  const lambda2 = trace / 2 - disc;  // 작은 고유값
+
+  // 1-sigma 반지름 (고유값의 제곱근)
+  const rx = Math.max(Math.sqrt(Math.max(lambda1, 0)), 0.15);
+  const ry = Math.max(Math.sqrt(Math.max(lambda2, 0)), 0.15);
+
+  // 회전 각도 (라디안) — 큰 고유값에 대응하는 고유벡터 방향
+  const angle = Math.atan2(2 * sxy, sxx - syy) / 2;
+
+  return { cx, cy, rx, ry, angle };
+}
+
+// 회전 타원을 Plotly scatter trace로 생성 (N=72점 근사)
+function ellipseTrace(cx: number, cy: number, rx: number, ry: number, angle: number, color: string, name: string) {
+  const N = 72;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const xpts: number[] = [], ypts: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = (2 * Math.PI * i) / N;
+    const px = rx * Math.cos(t);
+    const py = ry * Math.sin(t);
+    xpts.push(cx + px * cosA - py * sinA);
+    ypts.push(cy + px * sinA + py * cosA);
+  }
+  return {
+    x: xpts, y: ypts, mode: 'lines', name, legendgroup: name,
+    showlegend: false, hoverinfo: 'skip',
+    line: { color, width: 1.5, dash: 'dash' },
+  };
+}
+
+// 채운 회전 타원 (fill)
+function ellipseFillTrace(cx: number, cy: number, rx: number, ry: number, angle: number, color: string, name: string) {
+  const N = 72;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const xpts: number[] = [], ypts: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = (2 * Math.PI * i) / N;
+    const px = rx * Math.cos(t);
+    const py = ry * Math.sin(t);
+    xpts.push(cx + px * cosA - py * sinA);
+    ypts.push(cy + px * sinA + py * cosA);
+  }
+  return {
+    x: xpts, y: ypts, mode: 'lines', name, legendgroup: name,
+    showlegend: false, hoverinfo: 'skip', fill: 'toself',
+    fillcolor: color + '28', // ~16% opacity
+    line: { color: 'rgba(0,0,0,0)', width: 0 },
+  };
+}
+
+// 구종별 scatter + covariance ellipse traces 생성
+function makeEllipseTraces(
+  data: PitchRecord[],
+  pitchTypes: string[],
+  colorMap: Record<string,string>,
+  xKey: keyof PitchRecord,
+  yKey: keyof PitchRecord,
+  hoverFn: (d: PitchRecord) => string,
+  filterFn?: (d: PitchRecord) => boolean,
+) {
+  const traces: any[] = [];
+  for (const pt of pitchTypes) {
+    const sub = (filterFn ? data.filter(filterFn) : data)
+      .filter(d => d.pitch_name === pt);
+    // x, y 쌍이 모두 유효한 것만 사용
+    const pairs = sub
+      .map(d => [d[xKey] as number, d[yKey] as number] as [number, number])
+      .filter(([x, y]) => x != null && y != null && isFinite(x) && isFinite(y));
+    if (!pairs.length) continue;
+
+    const xs = pairs.map(p => p[0]);
+    const ys = pairs.map(p => p[1]);
+    const col = colorMap[pt];
+    const { cx, cy, rx, ry, angle } = covarianceEllipse(xs, ys);
+
+    // 채운 타원 → 외곽선 타원 → 산점도 → 중심점 순서
+    traces.push(ellipseFillTrace(cx, cy, rx, ry, angle, col, pt));
+    traces.push(ellipseTrace(cx, cy, rx, ry, angle, col, pt));
+    traces.push({
+      x: xs, y: ys, mode: 'markers', name: pt, legendgroup: pt,
+      showlegend: true, type: 'scatter',
+      marker: { size: 7, color: col, line: { color: 'white', width: 0.5 }, opacity: 0.75 },
+      text: sub.map(hoverFn), hovertemplate: '%{text}<extra></extra>',
+    });
+    // 중심점 (큰 원)
+    traces.push({
+      x: [cx], y: [cy], mode: 'markers', name: pt, legendgroup: pt,
+      showlegend: false, hoverinfo: 'skip',
+      marker: { size: 14, color: col, line: { color: 'white', width: 2 } },
+    });
+  }
+  return traces;
+}
+
+function calcStats(data: PitchRecord[], pitchTypes: string[], stand: string) {
+  const totalFiltered = data.filter(d =>
+    stand === 'both' || d.stand === (stand === 'left' ? 'L' : 'R')
+  ).length;
+  return pitchTypes.map(pt => {
+    const sub = data.filter(d =>
+      d.pitch_name === pt &&
+      (stand === 'both' || d.stand === (stand === 'left' ? 'L' : 'R'))
+    );
+    if (!sub.length) return null;
+    const vaas   = sub.map(calcVaa).filter((v): v is number => v !== null);
+    const speeds = sub.map(d=>d.start_speed).filter((v): v is number => v!==null);
+    const ivbs   = sub.map(d=>d.breakZInducedInches).filter((v): v is number => v!==null);
+    const hbs    = sub.map(d=>d.breakXInches).filter((v): v is number => v!==null);
+    const spins  = sub.map(d=>d.spin_rate).filter((v): v is number => v!==null);
+    const exts   = sub.map(d=>d.extension).filter((v): v is number => v!==null);
+    const whiffDescs = new Set(['Swinging Strike','Swinging Strike (Blocked)','Foul Tip']);
+    const swingDescs = new Set([
+      'Swinging Strike','Swinging Strike (Blocked)','Foul Tip',
+      'Foul','Foul Bunt','In play, out(s)','In play, no out','In play, run(s)',
+    ]);
+    const whiffs  = sub.filter(d => d.description && whiffDescs.has(d.description)).length;
+    const swings  = sub.filter(d => d.description && swingDescs.has(d.description)).length;
+    const strikes = sub.filter(d=>d.call&&['S','X'].includes(d.call.toUpperCase())).length;
+    const pitchPct = totalFiltered > 0 ? ((sub.length / totalFiltered) * 100).toFixed(1) : '-';
+    // Zone%: zone 1~9 / 전체
+    const inZone  = sub.filter(d => d.zone != null && d.zone >= 1 && d.zone <= 9).length;
+    // Chase%: zone 11~14 중 스윙 / zone 11~14 전체
+    const outZone = sub.filter(d => d.zone != null && d.zone >= 11);
+    const chaseSwings = outZone.filter(d => d.description && swingDescs.has(d.description)).length;
+    return {
+      Pitch:     pt,
+      'Pitch%':  `${pitchPct}%`,
+      'VAA min': vaas.length ? Math.min(...vaas).toFixed(1) : '-',
+      'VAA max': vaas.length ? Math.max(...vaas).toFixed(1) : '-',
+      Velo:      avg(speeds)?.toFixed(1) ?? '-',
+      IVB:       avg(ivbs)?.toFixed(1)   ?? '-',
+      HB:        avg(hbs)?.toFixed(1)    ?? '-',
+      Spin:      spins.length ? Math.round(spins.reduce((a,b)=>a+b)/spins.length) : '-',
+      Ext:       avg(exts)?.toFixed(1)   ?? '-',
+      'Zone%':   sub.length > 0 ? `${((inZone/sub.length)*100).toFixed(1)}%` : '-',
+      'Chase%':  outZone.length > 0 ? `${((chaseSwings/outZone.length)*100).toFixed(1)}%` : '-',
+      'Whiff%':  swings > 0 ? `${((whiffs/swings)*100).toFixed(1)}%` : '-',
+      'Strike%': `${((strikes/sub.length)*100).toFixed(1)}%`,
+      Count:     sub.length,
+    };
+  }).filter(Boolean) as Record<string,any>[];
+}
+
+// 어제 날짜를 YYYY-MM-DD로 반환 (사용자 로컬 시간 기준)
+function getYesterday(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+interface GameOption { gamePk: string; label: string }
+
+// "6' 0\"" → feet (소수) 변환
+function parseHeightFt(h: string): number | null {
+  const m = h.match(/(\d+)'\s*(\d+)/);
+  if (!m) return null;
+  return parseInt(m[1]) + parseInt(m[2]) / 12;
+}
+
+// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────
+export default function App() {
+  const [dateStr, setDateStr]       = useState(getYesterday);
+  const [games, setGames]           = useState<GameOption[]>([]);
+  const [input, setInput]           = useState('');
+  const [gamePk, setGamePk]         = useState('');
+  const [pitchers, setPitchers]     = useState<Pitcher[]>([]);
+  const [selected, setSelected]     = useState<Pitcher|null>(null);
+  const [selPitches, setSelPitches] = useState<string[]>([]);
+  const [stand, setStand]           = useState('both');
+  const [pitchData, setPitchData]   = useState<PitchRecord[]>([]);
+  const [boxscore, setBoxscore]     = useState<Record<string,any>>({});
+  const [pitcherHeightFt, setPitcherHeightFt] = useState<number|null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [countdown, setCountdown]   = useState(15);
+  const [error, setError]           = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [inningFilter, setInningFilter] = useState<Set<number>|'all'>('all');
+  const timerRef = useRef<ReturnType<typeof setInterval>|null>(null);
+
+  async function fetchFromSavant(gk: string): Promise<PitchRecord[]> {
+    const res = await fetch(`${WORKER_URL}/gf?game_pk=${gk}`);
+    if (!res.ok) throw new Error(`Worker error: ${res.status}`);
+    const json = await res.json();
+    return [...(json.team_home??[]),...(json.team_away??[])].map(cleanRecord);
+  }
+
+  // 날짜별 경기 목록 로드
+  async function fetchGames(date: string) {
+    try {
+      const res = await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const list: GameOption[] = (json.dates?.[0]?.games ?? []).map((g: any) => ({
+        gamePk: String(g.gamePk),
+        label: `${g.teams.away.team.name} @ ${g.teams.home.team.name}`,
+      }));
+      setGames(list);
+    } catch { setGames([]); }
+  }
+
+  useEffect(() => { fetchGames(dateStr); }, [dateStr]);
+
+  // 박스스코어 fetch (분리해서 수동 업데이트에서도 호출 가능)
+  async function fetchBoxscore(gk: string) {
+    try {
+      const res = await fetch(`https://statsapi.mlb.com/api/v1/game/${gk}/boxscore`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const stats: Record<string,any> = {};
+      for (const side of ['away','home'] as const) {
+        const players = json?.teams?.[side]?.players ?? {};
+        for (const p of Object.values(players) as any[]) {
+          const ps = p?.stats?.pitching;
+          if (ps && Object.keys(ps).length) stats[p.person.fullName] = ps;
+        }
+      }
+      setBoxscore(stats);
+    } catch {}
+  }
+
+  async function handleFetch() {
+    const gk = input.trim() ? extractGamePk(input) : gamePk;
+    if (!gk) return;
+    setLoading(true); setError('');
+    try {
+      const all = await fetchFromSavant(gk);
+      if (!all.length) throw new Error('투구 데이터가 없습니다.');
+      const map: Record<string,Set<string>> = {};
+      for (const p of all) {
+        if (!p.pitcher_name) continue;
+        map[p.pitcher_name] ??= new Set();
+        if (p.pitch_name) map[p.pitcher_name].add(p.pitch_name);
+      }
+      setGamePk(gk); setSelected(null); setPitchData([]);
+      setPitchers(Object.entries(map).sort(([a],[b])=>a.localeCompare(b))
+        .map(([name,pts])=>({ name, pitch_types:[...pts].sort() })));
+      await fetchBoxscore(gk);
+    } catch(e:any) { setError(e.message??'Failed'); }
+    finally { setLoading(false); }
+  }
+
+  async function loadPitchData(gk: string, pitcher: Pitcher) {
+    setLoading(true);
+    try {
+      const all = await fetchFromSavant(gk);
+      let f = all.filter(d=>d.pitcher_name===pitcher.name);
+      if (selPitches.length) f = f.filter(d=>selPitches.includes(d.pitch_name));
+      if (stand!=='both') { const c=stand==='left'?'L':'R'; f=f.filter(d=>d.stand===c); }
+      setPitchData(f); setError('');
+
+      // 투수 키 조회 (mlbam id → MLB Stats API)
+      const pitcherId = f.find(d=>d.pitcher)?.pitcher;
+      if (pitcherId) {
+        try {
+          const res = await fetch(`https://statsapi.mlb.com/api/v1/people?personIds=${pitcherId}`);
+          if (res.ok) {
+            const json = await res.json();
+            const h = json?.people?.[0]?.height;
+            setPitcherHeightFt(h ? parseHeightFt(h) : null);
+          }
+        } catch { setPitcherHeightFt(null); }
+      } else {
+        setPitcherHeightFt(null);
+      }
+    } catch(e:any) { setError(e.message??'Failed'); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(()=>{ if(gamePk&&selected) loadPitchData(gamePk,selected); },[gamePk,selected,selPitches,stand]);
+
+  useEffect(()=>{
+    if(autoUpdate&&gamePk&&selected){
+      timerRef.current=setInterval(()=>{
+        setCountdown(p=>{
+          if(p<=1){
+            loadPitchData(gamePk,selected!);
+            fetchBoxscore(gamePk);
+            return 15;
+          }
+          return p-1;
+        });
+      },1000);
+    } else { if(timerRef.current) clearInterval(timerRef.current); setCountdown(15); }
+    return ()=>{ if(timerRef.current) clearInterval(timerRef.current); };
+  },[autoUpdate,gamePk,selected]);
+
+  // 개별 차트 다운로드 헬퍼
+  async function downloadPlot(id: string, suffix: string) {
+    if (!selected) return;
+    const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
+    const el = document.getElementById(id);
+    if (el) await (Plotly as any).downloadImage(el, {
+      format:'png', width:800, height:800, filename:`${base}_${suffix}`,
+    });
+  }
+
+  async function downloadTable(id: string, suffix: string) {
+    if (!selected) return;
+    const base = `Report_${selected.name.replace(/,?\s+/g,'_')}`;
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    // 모든 overflow:auto/hidden 요소를 visible로 임시 전환
+    const overflowEls = Array.from(el.querySelectorAll<HTMLElement>('*')).concat(el);
+    const prevStyles: string[] = overflowEls.map(e => e.style.overflow);
+    overflowEls.forEach(e => { e.style.overflow = 'visible'; });
+
+    const fullW = el.scrollWidth;
+    const fullH = el.scrollHeight;
+
+    const html2canvas = (await import('html2canvas')).default;
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      scrollX: 0,
+      scrollY: 0,
+      width: fullW,
+      height: fullH,
+      windowWidth: fullW,
+      windowHeight: fullH,
+    });
+
+    // 복원
+    overflowEls.forEach((e, i) => { e.style.overflow = prevStyles[i]; });
+
+    const link = document.createElement('a');
+    link.download = `${base}_${suffix}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  async function handleDownload() {
+    if (!selected||!pitchData.length) return;
+    await downloadPlot('plot-move', 'movement');
+    await downloadPlot('plot-zone', 'location');
+    await downloadPlot('plot-rel',  'release');
+    await downloadTable('table-stats', 'statistics');
+    await downloadTable('table-bip',   'batted_ball');
+  }
+
+  const pitchTypes = [...new Set(pitchData.map(d=>d.pitch_name).filter(Boolean))];
+  const colorMap   = Object.fromEntries(pitchTypes.map(pt => [pt, getPitchColor(pt)]));
+
+  // 이닝 필터 적용 (다중 선택)
+  const filteredData = inningFilter === 'all'
+    ? pitchData
+    : pitchData.filter(d => d.inning != null && (inningFilter as Set<number>).has(d.inning));
+
+  // 사용 가능한 이닝 목록
+  const availableInnings = [...new Set(pitchData.map(d=>d.inning).filter((v): v is number => v!=null))].sort((a,b)=>a-b);
+
+  // 선택된 투수의 박스스코어 스탯 매칭 (성/이름 순서 다를 수 있어서 느슨하게 매칭)
+  const selectedBoxscore = (() => {
+    if (!selected || !Object.keys(boxscore).length) return null;
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g,'');
+    const target = norm(selected.name);
+    for (const [name, stats] of Object.entries(boxscore)) {
+      const n = norm(name);
+      if (n === target || n.includes(target) || target.includes(n)) return stats as any;
+    }
+    return null;
+  })();
+
+  // Hard Hit 허용 수 (EV >= 95mph 인플레이 타구)
+  const hardHitCount = pitchData.filter(d =>
+    d.events && d.launch_speed != null && (d.launch_speed ?? 0) >= 95
+  ).length;
+
+  // Export Report — Canvas API로 직접 합성
+  async function handleExportReport() {
+    if (!selected || !pitchData.length) return;
+
+    // 1. Plotly 차트 3개를 이미지로 추출
+    async function plotToImg(id: string, size: number): Promise<HTMLImageElement> {
+      const el = document.getElementById(id);
+      if (!el) throw new Error(`${id} not found`);
+      const url: string = await (Plotly as any).toImage(el, { format: 'png', width: size, height: size });
+      return new Promise(res => { const img = new Image(); img.onload = () => res(img); img.src = url; });
+    }
+
+    const CHART_SIZE = 340;
+    const [imgMove, imgZone, imgRel] = await Promise.all([
+      plotToImg('plot-move', CHART_SIZE),
+      plotToImg('plot-zone', CHART_SIZE),
+      plotToImg('plot-rel',  CHART_SIZE),
+    ]);
+
+    // 2. Canvas 레이아웃 설정
+    const W = 1080;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+
+    // 높이 계산: 헤더 + 박스스코어 + 차트행 + 범례 + 테이블
+    const HEADER_H  = 110;
+    const BOX_H     = 60;
+    const CHART_ROW = CHART_SIZE + 20;
+    const LEGEND_H  = 40;
+    const TABLE_ROW = 36;
+    const TABLE_H   = TABLE_ROW * (stats.length + 1) + 20;
+    const TOTAL_H   = HEADER_H + BOX_H + CHART_ROW + LEGEND_H + TABLE_H + 40;
+
+    canvas.width  = W;
+    canvas.height = TOTAL_H;
+
+    // 배경
+    ctx.fillStyle = '#F5F6FA';
+    ctx.fillRect(0, 0, W, TOTAL_H);
+
+    // ── 헤더 ──────────────────────────────────────────────────────────────
+    ctx.fillStyle = '#0D1B2A';
+    ctx.fillRect(0, 0, W, HEADER_H);
+
+    ctx.fillStyle = '#F4B942';
+    ctx.font = 'bold 36px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(selected.name, W / 2, 48);
+
+    ctx.fillStyle = '#C8D0DC';
+    ctx.font = '18px Inter, sans-serif';
+    // 상대팀 정보
+    const gameLabel = games.find(g => g.gamePk === gamePk)?.label ?? `game_pk: ${gamePk}`;
+    ctx.fillText(`${dateStr}  ·  ${gameLabel}`, W / 2, 78);
+
+    ctx.fillStyle = '#8A95A3';
+    ctx.font = '14px Inter, sans-serif';
+    ctx.fillText(`${pitchData.length} pitches`, W / 2, 100);
+
+    // ── 박스스코어 행 ──────────────────────────────────────────────────────
+    let y = HEADER_H;
+    ctx.fillStyle = '#1B3A5C';
+    ctx.fillRect(0, y, W, BOX_H);
+
+    const bsItems: [string, any][] = selectedBoxscore ? [
+      ['IP', selectedBoxscore.inningsPitched],
+      ['H',  selectedBoxscore.hits],
+      ['R',  selectedBoxscore.runs],
+      ['ER', selectedBoxscore.earnedRuns],
+      ['BB', selectedBoxscore.baseOnBalls],
+      ['K',  selectedBoxscore.strikeOuts],
+      ['NP', selectedBoxscore.numberOfPitches],
+      ['S',  selectedBoxscore.strikes],
+      ['HH', hardHitCount],
+    ] : [['Pitches', pitchData.length]];
+
+    const cellW = W / bsItems.length;
+    bsItems.forEach(([label, val], i) => {
+      const cx = cellW * i + cellW / 2;
+      ctx.fillStyle = '#8A95A3';
+      ctx.font = 'bold 11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, cx, y + 18);
+      ctx.fillStyle = '#F4B942';
+      ctx.font = 'bold 22px Inter, sans-serif';
+      ctx.fillText(String(val ?? '-'), cx, y + 46);
+    });
+
+    // ── 차트 3개 가로 배치 ─────────────────────────────────────────────────
+    y = HEADER_H + BOX_H + 10;
+    const chartTitles = ['Pitch Location', 'Pitch Breaks', 'Release Point'];
+    const chartImgs   = [imgZone, imgMove, imgRel];
+    const chartX      = [20, (W - CHART_SIZE) / 2, W - CHART_SIZE - 20];
+
+    chartTitles.forEach((title, i) => {
+      ctx.fillStyle = '#0D1B2A';
+      ctx.font = 'bold 13px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(title, chartX[i] + CHART_SIZE / 2, y + 14);
+      ctx.drawImage(chartImgs[i], chartX[i], y + 18, CHART_SIZE, CHART_SIZE);
+    });
+
+    // ── 범례 ──────────────────────────────────────────────────────────────
+    y += CHART_SIZE + 24;
+    const legendItems = pitchTypes.map(pt => ({ label: pt, color: colorMap[pt] }));
+    const legendTotalW = legendItems.length * 140;
+    let lx = (W - legendTotalW) / 2;
+    legendItems.forEach(({ label, color }) => {
+      ctx.beginPath();
+      ctx.arc(lx + 8, y + 8, 7, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.fillStyle = '#0D1B2A';
+      ctx.font = '13px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, lx + 20, y + 13);
+      lx += 140;
+    });
+
+    // ── 통계 테이블 ────────────────────────────────────────────────────────
+    y += LEGEND_H;
+    if (stats.length > 0) {
+      const cols = Object.keys(stats[0]);
+      const colW = (W - 40) / cols.length;
+
+      // 헤더
+      ctx.fillStyle = '#0D1B2A';
+      ctx.fillRect(20, y, W - 40, TABLE_ROW);
+      cols.forEach((col, i) => {
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(col, 20 + colW * i + colW / 2, y + 23);
+      });
+      y += TABLE_ROW;
+
+      // 데이터 행
+      stats.forEach((row, ri) => {
+        ctx.fillStyle = ri % 2 === 0 ? '#EEF1F7' : 'white';
+        ctx.fillRect(20, y, W - 40, TABLE_ROW);
+
+        cols.forEach((col, ci) => {
+          const val = String(row[col]);
+          if (ci === 0) {
+            // 구종 셀 — 색상 강조
+            ctx.fillStyle = colorMap[val] ?? '#0D1B2A';
+            ctx.fillRect(20, y, colW, TABLE_ROW);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 12px Inter, sans-serif';
+          } else {
+            ctx.fillStyle = '#0D1B2A';
+            ctx.font = '12px Inter, sans-serif';
+          }
+          ctx.textAlign = 'center';
+          ctx.fillText(val, 20 + colW * ci + colW / 2, y + 23);
+        });
+
+        // 행 구분선
+        ctx.strokeStyle = '#C8D0DC';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(20, y + TABLE_ROW);
+        ctx.lineTo(W - 20, y + TABLE_ROW);
+        ctx.stroke();
+        y += TABLE_ROW;
+      });
+    }
+
+    // 저장
+    const link = document.createElement('a');
+    const base = selected.name.replace(/,?\s+/g, '_');
+    link.download = `Report_${base}_${dateStr}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  // ── traces ────────────────────────────────────────────────────────────────
+  // 로케이션: L+R 합쳐서 하나
+  const zoneTraces = makeEllipseTraces(filteredData, pitchTypes, colorMap,
+    'plate_x','plate_z',
+    d=>`<b>${d.pitch_name}</b><br>${d.start_speed} mph · ${d.spin_rate} rpm<br>${d.stand==='L'?'vs LHB':'vs RHB'}`);
+
+  const moveTraces = makeEllipseTraces(filteredData, pitchTypes, colorMap,    'breakXInches','breakZInducedInches',
+    d=>`<b>${d.pitch_name}</b><br>IVB: ${d.breakZInducedInches}"<br>HB: ${d.breakXInches}"<br>${d.start_speed} mph`);
+
+  const relTraces = makeEllipseTraces(filteredData, pitchTypes, colorMap,
+    'x0','z0',
+    d=>`<b>${d.pitch_name}</b><br>X: ${(d.x0??0).toFixed(2)} ft<br>Z: ${(d.z0??0).toFixed(2)} ft`);
+
+  const stats   = calcStats(filteredData, pitchTypes, stand);
+  const bipData = filteredData
+    .filter(d=>d.events&&d.launch_speed!=null)
+    .sort((a,b)=>(a.inning??0)-(b.inning??0))
+    .slice(0,20);
+
+  // ── 공통 축 스타일 ────────────────────────────────────────────────────────
+  const ax = (extra={}) => ({ gridcolor:GRAY_MID, zerolinecolor:GRAY_MID, linecolor:GRAY_MID, tickfont:{color:GRAY_DARK,size:10}, ...extra });
+
+  // 야구공 둘레 9인치 → 지름 9/π ≈ 2.86인치 ≈ 0.239ft → 반지름 ≈ 0.119ft
+  const BALL_R = (9 / Math.PI) / 2 / 12;
+  // 스트라이크존 shapes
+  const zoneShapes = [
+    // 공 반지름 확장 존 (점선) — 실제 스트라이크 판정 경계
+    {type:'rect',x0:-0.83-BALL_R,y0:1.5-BALL_R,x1:0.83+BALL_R,y1:3.5+BALL_R,
+      line:{color:GRAY_DARK,width:1,dash:'dot'},fillcolor:'rgba(0,0,0,0)'},
+    // 실제 스트라이크존 (실선)
+    {type:'rect',x0:-0.83,y0:1.5,x1:0.83,y1:3.5,line:{color:NAVY,width:2}},
+    {type:'line',x0:-0.83+(1.66/3),y0:1.5,x1:-0.83+(1.66/3),y1:3.5,line:{color:GRAY_MID,width:0.7,dash:'dash'}},
+    {type:'line',x0:-0.83+(1.66*2/3),y0:1.5,x1:-0.83+(1.66*2/3),y1:3.5,line:{color:GRAY_MID,width:0.7,dash:'dash'}},
+    {type:'line',x0:-0.83,y0:1.5+(2/3),x1:0.83,y1:1.5+(2/3),line:{color:GRAY_MID,width:0.7,dash:'dash'}},
+    {type:'line',x0:-0.83,y0:1.5+(4/3),x1:0.83,y1:1.5+(4/3),line:{color:GRAY_MID,width:0.7,dash:'dash'}},
+    {type:'path',path:'M -0.71 0.15 L 0.71 0.15 L 0.71 0 L 0 -0.22 L -0.71 0 Z',fillcolor:GRAY_LITE,line:{color:NAVY,width:1.4}},
+  ];
+
+  const lhbLayout = {
+    shapes:zoneShapes,
+    xaxis:ax({range:[-2.5,2.5],title:{text:'← Glove | Arm →',font:{color:GRAY_DARK,size:10}},fixedrange:true}),
+    yaxis:ax({range:[-0.3,5.2],title:{text:'Height (ft)',font:{color:GRAY_DARK,size:10}},fixedrange:true,scaleanchor:'x',scaleratio:1}),
+  };
+
+  const moveLayout = {
+    xaxis:ax({range:[-24,24],title:{text:'← Glove Side  |  Arm Side →',font:{color:GRAY_DARK,size:10}},zeroline:true,zerolinewidth:1}),
+    yaxis:ax({range:[-24,24],title:{text:'Induced Vertical Break (in)',font:{color:GRAY_DARK,size:10}},zeroline:true,zerolinewidth:1,scaleanchor:'x',scaleratio:1}),
+    shapes:[
+      {type:'circle',x0:-24,y0:-24,x1:24,y1:24,line:{color:GRAY_MID,dash:'dash',width:1}},
+      {type:'line',x0:-24,y0:0,x1:24,y1:0,line:{color:GRAY_MID,width:1}},
+      {type:'line',x0:0,y0:-24,x1:0,y1:24,line:{color:GRAY_MID,width:1}},
+    ],
+    annotations:[
+      {x:0,y:22,text:'MORE RISE ▲',showarrow:false,font:{color:NAVY_MID,size:9}},
+      {x:0,y:-22,text:'▼ MORE DROP',showarrow:false,font:{color:NAVY_MID,size:9}},
+    ],
+  };
+
+  const relLayout = {
+    xaxis:ax({range:[-5,5],title:{text:'Release X (ft)',font:{color:GRAY_DARK,size:10}},zeroline:true,scaleanchor:'y',scaleratio:1}),
+    yaxis:ax({range:[4,8],title:{text:'Release Z (ft)',font:{color:GRAY_DARK,size:10}}}),
+    shapes: pitcherHeightFt ? [
+      {
+        type: 'line',
+        x0: 0, x1: 0,
+        y0: 0, y1: pitcherHeightFt,
+        line: { color: NAVY, width: 1.5, dash: 'solid' },
+      }
+    ] : [],
+    annotations: pitcherHeightFt ? [
+      {
+        x: 0, y: pitcherHeightFt,
+        text: `${Math.floor(pitcherHeightFt)}'${Math.round((pitcherHeightFt % 1) * 12)}"`,
+        showarrow: false,
+        font: { color: NAVY, size: 10, family: 'Inter' },
+        yshift: 8,
+      }
+    ] : [],
+  };
+
+
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <div className="header-inner">
+          <button className="hamburger" onClick={()=>setDrawerOpen(o=>!o)} aria-label="메뉴">
+            {drawerOpen ? <X size={20}/> : <Menu size={20}/>}
+          </button>
+          <h1>Pitcher Report</h1>
+          {selected && pitchData.length>0 && (
+            <div className="header-pitcher">
+              <span className="pitcher-name">{selected.name}</span>
+              <span className="pitcher-meta">game_pk: {gamePk} · {pitchData.length} pitches</span>
+              {selectedBoxscore && (
+                <div className="boxscore-row">
+                  {[
+                    ['IP', selectedBoxscore.inningsPitched],
+                    ['H',  selectedBoxscore.hits],
+                    ['R',  selectedBoxscore.runs],
+                    ['ER', selectedBoxscore.earnedRuns],
+                    ['BB', selectedBoxscore.baseOnBalls],
+                    ['K',  selectedBoxscore.strikeOuts],
+                    ['NP', selectedBoxscore.numberOfPitches],
+                    ['S',  selectedBoxscore.strikes],
+                    ['HH', hardHitCount],
+                  ].map(([label, val]) => (
+                    <div key={label as string} className="bs-cell">
+                      <span className="bs-label">{label}</span>
+                      <span className="bs-val">{val ?? '-'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <div className="layout">
+        {/* 모바일 오버레이 */}
+        {drawerOpen && <div className="drawer-overlay" onClick={()=>setDrawerOpen(false)}/>}
+
+        <aside className={`sidebar ${drawerOpen ? 'drawer-open' : ''}`}>
+          {/* 날짜 선택 */}
+          <section className="input-group">
+            <label>Date</label>
+            <input type="date" value={dateStr}
+              onChange={e=>{ setDateStr(e.target.value); setGames([]); setGamePk(''); setPitchers([]); setSelected(null); setPitchData([]); }}
+              style={{padding:'0.5rem 0.7rem',border:'1px solid var(--gray-mid)',borderRadius:'6px',fontSize:'0.85rem',background:'var(--cream)',color:'var(--navy)',width:'100%'}}
+            />
+          </section>
+
+          {/* 경기 선택 */}
+          {games.length>0 && (
+            <section className="input-group">
+              <label>Game</label>
+              <div className="select-wrapper">
+                <select value={gamePk} onChange={e=>{
+                  setGamePk(e.target.value);
+                  setInput(e.target.value);
+                  setPitchers([]); setSelected(null); setPitchData([]);
+                }}>
+                  <option value="">경기 선택...</option>
+                  {games.map(g=><option key={g.gamePk} value={g.gamePk}>{g.label}</option>)}
+                </select>
+                <ChevronDown size={14} className="select-icon"/>
+              </div>
+              {gamePk && (
+                <button className="btn-icon" style={{marginTop:'0.4rem',width:'100%',justifyContent:'center',gap:'0.4rem'}}
+                  onClick={()=>{ handleFetch(); }} disabled={loading}>
+                  <Search size={14}/> Load Game
+                </button>
+              )}
+            </section>
+          )}
+
+          <section className="input-group">
+            <label>또는 직접 입력 (URL / game_pk)</label>
+            <div className="search-box">
+              <input type="text" placeholder="URL 또는 game_pk..."
+                value={input} onChange={e=>setInput(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&handleFetch()} />
+              <button onClick={handleFetch} disabled={loading} className="btn-icon"><Search size={16}/></button>
+            </div>
+          </section>
+
+          {pitchers.length>0 && (<>
+            <section className="input-group">
+              <label>Pitcher</label>
+              <div className="select-wrapper">
+                <select value={selected?.name||''} onChange={e=>{
+                  const p=pitchers.find(x=>x.name===e.target.value);
+                  setSelected(p||null); setSelPitches([]);
+                }}>
+                  <option value="" disabled>선택...</option>
+                  {pitchers.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}
+                </select>
+                <ChevronDown size={14} className="select-icon"/>
+              </div>
+            </section>
+
+            <section className="input-group">
+              <label>Opponent Stand</label>
+              <div className="stand-btns">
+                {(['both','left','right'] as const).map(s=>(
+                  <button key={s} className={`stand-btn ${stand===s?'active':''}`} onClick={()=>setStand(s)}>
+                    {s==='both'?'Both':s==='left'?'vs L':'vs R'}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {selected && (
+              <section className="input-group">
+                <div className="label-row">
+                  <label>Pitch Types</label>
+                  <button className="text-btn" onClick={()=>
+                    setSelPitches(selPitches.length===selected.pitch_types.length?[]:[ ...selected.pitch_types])
+                  }>Toggle All</button>
+                </div>
+                <div className="pitch-list">
+                  {selected.pitch_types.map(pitch=>(
+                    <label key={pitch} className={`pitch-item ${selPitches.includes(pitch)?'active':''}`}>
+                      <input type="checkbox" checked={selPitches.includes(pitch)} onChange={()=>
+                        setSelPitches(prev=>prev.includes(pitch)?prev.filter(p=>p!==pitch):[...prev,pitch])
+                      }/>
+                      <span className="pitch-dot" style={{background:colorMap[pitch]||GRAY_MID}}/>
+                      <span>{pitch}</span>
+                      <div className="checkbox-ui">{selPitches.includes(pitch)&&<Check size={10}/>}</div>
+                    </label>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <div className="sidebar-actions">
+              <button className="btn-download" onClick={handleDownload} disabled={!selected||!pitchData.length}>
+                <Download size={14}/> Download PNG
+              </button>
+              <button className={`btn-auto ${autoUpdate?'active':''}`} onClick={()=>setAutoUpdate(!autoUpdate)}>
+                {autoUpdate?<Pause size={14}/>:<Play size={14}/>}
+                {autoUpdate?`${countdown}s`:'Auto'}
+              </button>
+              {gamePk && (
+                <button className="btn-auto"
+                  onClick={async ()=>{ if(selected) await loadPitchData(gamePk,selected); await fetchBoxscore(gamePk); }}
+                  disabled={loading}>
+                  <RotateCcw size={14}/>
+                </button>
+              )}
+            </div>
+
+            {/* 이닝 필터 */}
+            {availableInnings.length > 0 && (
+              <section className="input-group">
+                <label>Inning Filter</label>
+                <div className="stand-btns" style={{flexWrap:'wrap'}}>
+                  <button className={`stand-btn ${inningFilter==='all'?'active':''}`}
+                    onClick={()=>setInningFilter('all')}>All</button>
+                  {availableInnings.map(inn=>(
+                    <button key={inn}
+                      className={`stand-btn ${inningFilter!=='all'&&(inningFilter as Set<number>).has(inn)?'active':''}`}
+                      onClick={()=>{
+                        if (inningFilter === 'all') {
+                          setInningFilter(new Set([inn]));
+                        } else {
+                          const s = new Set(inningFilter as Set<number>);
+                          s.has(inn) ? s.delete(inn) : s.add(inn);
+                          setInningFilter(s.size === 0 ? 'all' : s);
+                        }
+                      }}>{inn}</button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Export Report */}
+            {pitchData.length > 0 && (
+              <button className="btn-download" style={{width:'100%',justifyContent:'center',gap:'0.5rem'}}
+                onClick={handleExportReport}>
+                <Download size={14}/> Export Report
+              </button>
+            )}
+          </>)}
+
+          {loading && <div className="loading-bar"/>}
+          {error   && <div className="error-box">{error}</div>}
+        </aside>
+
+        <main className="main-content">
+          {pitchData.length>0 ? (
+            <div className="report" id="export-report">
+              <div className="chart-stack">
+                <div className="chart-block">
+                  <div className="chart-header">
+                    <div className="chart-title">Pitch Breaks</div>
+                    <button className="btn-dl" onClick={()=>downloadPlot('plot-move','movement')} title="Download PNG"><Download size={13}/></button>
+                  </div>
+                  <div className="chart-square">
+                    <PlotChart id="plot-move" data={moveTraces} layout={moveLayout}/>
+                  </div>
+                </div>
+                <div className="chart-block">
+                  <div className="chart-header">
+                    <div className="chart-title">Pitch Location <span className="chart-count">({pitchData.length} pitches)</span></div>
+                    <button className="btn-dl" onClick={()=>downloadPlot('plot-zone','location')} title="Download PNG"><Download size={13}/></button>
+                  </div>
+                  <div className="chart-square">
+                    <PlotChart id="plot-zone" data={zoneTraces} layout={lhbLayout}/>
+                  </div>
+                </div>
+                <div className="chart-block">
+                  <div className="chart-header">
+                    <div className="chart-title">Release Point</div>
+                    <button className="btn-dl" onClick={()=>downloadPlot('plot-rel','release')} title="Download PNG"><Download size={13}/></button>
+                  </div>
+                  <div className="chart-square">
+                    <PlotChart id="plot-rel" data={relTraces} layout={relLayout}/>
+                  </div>
+                </div>
+
+                {stats.length>0 && (
+                  <div className="chart-block" id="table-stats">
+                    <div className="chart-header">
+                      <div className="chart-title">
+                        Pitching Statistics
+                        <span className="table-sub"> · VAA · Velo · IVB · HB · Spin · Whiff%</span>
+                        {stand==='both'&&<span className="table-badge">L+R Combined</span>}
+                      </div>
+                      <button className="btn-dl" onClick={()=>downloadTable('table-stats','statistics')} title="Download PNG"><Download size={13}/></button>
+                    </div>
+                    <div className="table-scroll">
+                      <table className="stats-table">
+                        <thead><tr>{Object.keys(stats[0]).map(k=><th key={k}>{k}</th>)}</tr></thead>
+                        <tbody>
+                          {stats.map((row,i)=>(
+                            <tr key={i}>
+                              {Object.entries(row).map(([k,v],j)=>(
+                                <td key={k} className={j===0?'pitch-cell':''} style={j===0?{borderLeft:`4px solid ${colorMap[String(v)]||GRAY_MID}`}:{}}>
+                                  {String(v)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {bipData.length>0 && (
+                  <div className="chart-block" id="table-bip">
+                    <div className="chart-header">
+                      <div className="chart-title">
+                        Batted Ball Events
+                        <span className="ev-badge">EV ≥ 95 mph</span>
+                      </div>
+                      <button className="btn-dl" onClick={()=>downloadTable('table-bip','batted_ball')} title="Download PNG"><Download size={13}/></button>
+                    </div>
+                    <div className="table-scroll">
+                      <table className="stats-table">
+                        <thead><tr><th>Inn</th><th>Pitch</th><th>Batter</th><th>Event</th><th>EV (mph)</th><th>LA (°)</th><th>Dist (ft)</th><th>xBA</th></tr></thead>
+                        <tbody>
+                          {bipData.map((d,i)=>(
+                            <tr key={i}>
+                              <td>{d.inning}</td>
+                              <td className="pitch-cell" style={{borderLeft:`4px solid ${colorMap[d.pitch_name]||GRAY_MID}`}}>{d.pitch_name}</td>
+                              <td>{d.batter_name}</td>
+                              <td>{d.events}</td>
+                              <td className={(d.launch_speed??0)>=95?'ev-high':''}>{d.launch_speed}</td>
+                              <td>{d.launch_angle}</td>
+                              <td>{d.hit_distance}</td>
+                              <td>{d.xba}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <RotateCcw size={40} color={GRAY_MID}/>
+              <p>게임 데이터를 불러오고 투수를 선택하세요</p>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
